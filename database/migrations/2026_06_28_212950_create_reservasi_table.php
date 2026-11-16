@@ -17,11 +17,16 @@ return new class extends Migration
             $table->time('jam_selesai');
             $table->integer('jml_org');
             $table->text('keterangan')->nullable();
-            // $table->decimal('dp_bayar', 12, 2)->default(0); // dipindah di tabel pembayaran yg baru
-            // $table->enum('status', ['Pending', 'Confirmed', 'Completed', 'Cancelled'])->default('Pending');
-            // $table->boolean('status_notif')->default(false);
+            $table->text('cancellation_reason')->nullable();
+            $table->text('rejection_reason')->nullable();
+            $table->boolean('dp_forfeited')->default(false);
             $table->boolean('customer_notif')->default(false);
             $table->boolean('admin_notif')->default(false);
+            $table->boolean('customer_reminder_notif')->default(false);
+            $table->boolean('admin_reminder_notif')->default(false);
+            $table->boolean('approval_pending_customer_notif')->default(false);
+            $table->boolean('approval_pending_admin_notif')->default(false);
+            $table->boolean('approval_decision_customer_notif')->default(false);
             $table->timestamps();
 
             // Penambahan Index Composite

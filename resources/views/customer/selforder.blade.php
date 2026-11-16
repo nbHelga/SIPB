@@ -1,46 +1,10 @@
-@php
-    $nomorMeja = session('nomor_meja');
-    // $lantai = session('lantai');
-    $menuCollection = collect($menus);
-
-    $menuSections = collect();
-
-    $bestsellers = $menuCollection
-        ->filter(fn ($menu) => (bool) $menu->is_bestseller)
-        ->sortBy(fn ($menu) => mb_strtolower($menu->nama ?? ''), SORT_NATURAL)
-        ->values();
-
-    if ($bestsellers->isNotEmpty()) {
-        $menuSections->push([
-            'key' => '__bestseller__',
-            'title' => '⭐ Bestseller',
-            'menus' => $bestsellers,
-        ]);
-    }
-
-    $categoryGroups = $menuCollection
-        ->groupBy(fn ($menu) => mb_strtolower(trim($menu->kategori ?: 'Lainnya')))
-        ->sortKeys(SORT_NATURAL | SORT_FLAG_CASE);
-
-    foreach ($categoryGroups as $categoryKey => $categoryMenus) {
-        $menuSections->push([
-            'key' => $categoryKey,
-            'title' => $categoryMenus->first()->kategori ?: 'Lainnya',
-            'menus' => $categoryMenus->sortBy(
-                fn ($menu) => mb_strtolower($menu->nama ?? ''),
-                SORT_NATURAL
-            )->values(),
-        ]);
-    }
-@endphp
-
 @extends('layouts.customer')
 
 @section('title', 'Menu - BigBang Eatery')
 
 @section('header_right')
     @php $cartCount = count(Session::get('cart', [])); @endphp
-    <span class="text-sm font-bold bg-[#4A2311] px-3 py-2 ">Nomor Meja : {{ $nomorMeja ?? '-' }} (Lantai {{ $tables->lantai ?? '-'}})</span>
+    <span class="text-sm font-bold bg-[#4A2311] px-3 py-2 ">Meja {{ $tables->nomor_meja ?? '-' }} &bull; Lt {{ $tables->lantai ?? '-' }}</span>
     {{-- <h3 class="text-sm font-semibold ">{{ $tables->lantai ?? '-'}}</h3> --}}
     @if($isRestaurantOpen)
     <a href="{{ route('customer.cart', ['kode' => session('selforder_code'),'tableNumber' => $tables->nomor_meja,]) }}" class="relative p-2 hover:bg-stone-800 rounded-lg transition">
@@ -74,11 +38,11 @@
             />
         @endif
 
-        <div class="mb-5 rounded-xl border-2 px-4 py-3 text-center font-black {{ $isRestaurantOpen ? 'border-emerald-700 bg-emerald-50 text-emerald-900' : 'border-stone-400 bg-stone-200 text-stone-700' }}" role="status">
+        <div class="mb-5 rounded-xl border-2 px-4 py-3 text-center font-black {{ $isRestaurantOpen ? 'border-emerald-700 bg-emerald-50 text-emerald-900' : 'border-red-500 bg-red-50 text-red-900' }}" role="status">
             @if($isRestaurantOpen)
                 Buka <span class="mx-1 opacity-50">•</span> Tutup pukul 00.00 {{ $businessTimezoneLabel }}
             @else
-                Tutup <span class="mx-1 opacity-50">•</span> Buka kembali pukul 15.00 {{ $businessTimezoneLabel }}
+                🔴 Restoran Sedang Tutup <span class="mx-1 opacity-50">•</span> Buka kembali pukul 15.00 {{ $businessTimezoneLabel }}
             @endif
             </div>
 
@@ -188,21 +152,31 @@
 <script>
 (() => {
     const tabs = document.querySelectorAll('#categoryTabs .category-tab');
-    const sections = document.querySelectorAll('#menuSections .menu-category-section');
+    const items = document.querySelectorAll('#menuGrid .menu-item');
 
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const selected = (tab.dataset.category || 'all').trim().toLowerCase();
 
             tabs.forEach(button => {
-                button.classList.toggle('active', button === tab);
-                button.classList.toggle('bg-[#4A2311]', button === tab);
-                button.classList.toggle('text-white', button === tab);
+                const isActive = button === tab;
+                button.classList.toggle('active', isActive);
+                if (isActive) {
+                    button.classList.add('bg-[#4A2311]', 'text-white', 'border-stone-900', 'shadow-[3px_3px_0_0_rgba(0,0,0,0.3)]');
+                    button.classList.remove('bg-white', 'text-stone-700', 'border-stone-300', 'shadow-[2px_2px_0_0_rgba(0,0,0,0.1)]');
+                } else {
+                    button.classList.remove('bg-[#4A2311]', 'text-white', 'border-stone-900', 'shadow-[3px_3px_0_0_rgba(0,0,0,0.3)]');
+                    button.classList.add('bg-white', 'text-stone-700', 'border-stone-300', 'shadow-[2px_2px_0_0_rgba(0,0,0,0.1)]');
+                }
             });
 
-            sections.forEach(section => {
-                const category = (section.dataset.category || '').trim().toLowerCase();
-                section.hidden = selected !== 'all' && category !== selected;
+            items.forEach(item => {
+                const category = (item.dataset.category || '').trim().toLowerCase();
+                if (selected === 'all' || category === selected) {
+                    item.style.display = '';
+                } else {
+                    item.style.display = 'none';
+                }
             });
         });
     });

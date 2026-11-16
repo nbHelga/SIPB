@@ -36,8 +36,10 @@ class Pesanan extends Model
     const STATUS_PROCESSING = 'processing';
     const STATUS_COMPLETED = 'completed';
     const STATUS_CANCELLED = 'cancelled';
+    const STATUS_WAITING = 'waiting';
     
     public static $statuses = [
+        self::STATUS_WAITING => 'Waiting for approval',
         self::STATUS_PAID => 'Paid',
         self::STATUS_PROCESSING => 'Processing',
         self::STATUS_COMPLETED => 'Completed',

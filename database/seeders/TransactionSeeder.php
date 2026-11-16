@@ -222,27 +222,47 @@ class TransactionSeeder extends Seeder
         }
 
         // =====================================================================
-        // 3. DATA FUTURE RESERVASI (5 DATA BULAN DEPAN)
+        // 3. DATA FUTURE RESERVASI (TEST KAPASITAS)
         // =====================================================================
-        $this->command->info('Membuat Data Reservasi Bulan Depan...');
+        $this->command->info('Membuat Data Reservasi Test Kapasitas...');
         
-        $futureDate = Carbon::now()->addMonth()->setDay(15);
-        $jadwalFuture = [
-            ['15:00', '17:00'], // Res 1 (Beda jam)
-            ['20:00', '22:00'], // Res 2 (Beda jam)
-            ['18:00', '20:00'], // Res 3 (Bentrok)
-            ['18:30', '20:30'], // Res 4 (Bentrok)
-            ['19:00', '21:00'], // Res 5 (Bentrok)
+        $dpOptions = ['gopay', 'shopeepay', 'bca_va', 'other_qris'];
+        
+        // --- SKENARIO A: 16 Desember 2026 (Total Orang < 88) ---
+        $dateA = '2026-12-16';
+        $jadwalA = [
+            ['jam_mulai' => '15:00', 'jam_selesai' => '17:00', 'jml_org' => 15],
+            ['jam_mulai' => '16:00', 'jam_selesai' => '18:00', 'jml_org' => 20],
+            ['jam_mulai' => '16:30', 'jam_selesai' => '18:30', 'jml_org' => 10],
+            // Total beririsan maksimal (jam 16:30 - 17:00): 15 + 20 + 10 = 45 orang (< 88)
         ];
 
-        foreach ($jadwalFuture as $idx => $jam) {
+        // --- SKENARIO B: 17 Desember 2026 (Total Orang = 88) ---
+        $dateB = '2026-12-17';
+        $jadwalB = [
+            ['jam_mulai' => '19:00', 'jam_selesai' => '21:00', 'jml_org' => 30],
+            ['jam_mulai' => '19:30', 'jam_selesai' => '21:30', 'jml_org' => 40],
+            ['jam_mulai' => '19:45', 'jam_selesai' => '22:00', 'jml_org' => 18],
+            // Total beririsan maksimal (jam 19:45 - 21:00): 30 + 40 + 18 = 88 orang (== 88)
+        ];
+
+        $semuaJadwal = array_merge(
+            array_map(fn($j) => array_merge($j, ['tanggal' => $dateA]), $jadwalA),
+            array_map(fn($j) => array_merge($j, ['tanggal' => $dateB]), $jadwalB)
+        );
+
+        $customerTerpakai = [];
+
+        foreach ($semuaJadwal as $idx => $jadwal) {
             $createdDate = Carbon::now()->subDays(rand(1, 3));
             $kode = 'RSV-' . $createdDate->format('md') . '-' . rand(1000, 9999) . '-' . rand(1000, 9999);
             
-            // Generate items...
+            // Generate items untuk mencapai min 50k
             $totalHarga = 0;
             $items = [];
-            for ($j = 0; $j < rand(3, 5); $j++) {
+            
+            // Loop sampai total menu >= 50.000
+            while ($totalHarga < 50000) {
                 $menu = $menus->random();
                 $qty = rand(1, 3);
                 $sub = $menu->harga * $qty;
@@ -251,49 +271,59 @@ class TransactionSeeder extends Seeder
                     'id_menu'    => $menu->id,
                     'jumlah'     => $qty,
                     'subtotal'   => $sub,
-                    'catatan'    => 'Booking for Future',
+                    'catatan'    => 'Test Kapasitas',
                     'created_at' => $createdDate,
                     'updated_at' => $createdDate,
                 ];
             }
-            if ($totalHarga < 50000) $totalHarga = 65000; // Force memenuhi syarat
+
+            // Pastikan customer unik untuk tiap reservasi pending/confirmed
+            $customerId = $customers->reject(fn($c) => in_array($c->id, $customerTerpakai))->random()->id;
+            $customerTerpakai[] = $customerId;
 
             $pesananId = DB::table('pesanan')->insertGetId([
                 'kode_pesanan' => $kode,
-                'id_user'      => 2,
+                'id_user'      => 2, // Kasir/Admin
+                'id_meja'      => null, // Alokasi dikosongkan
                 'total_harga'  => $totalHarga,
-                'status'       => 'Reserved', // Status aman di masa depan
+                'status'       => 'Confirmed', // Status Confirmed
                 'created_at'   => $createdDate,
                 'updated_at'   => $createdDate,
+                'completed_at' => null,
             ]);
 
             foreach ($items as &$it) { $it['id_pesanan'] = $pesananId; }
             DB::table('detail_pesanan')->insert($items);
 
             $reservasiId = DB::table('reservasi')->insertGetId([
-                'id_customer'    => $customers->random()->id,
+                'id_customer'    => $customerId,
                 'id_pesanan'     => $pesananId,
-                'tanggal'        => $futureDate->format('Y-m-d'),
-                'jam_mulai'      => $jam[0],
-                'jam_selesai'    => $jam[1],
-                'jml_org'        => rand(4, 6),
-                'keterangan'     => 'Acara meeting keluarga ' . ($idx + 1),
+                'tanggal'        => $jadwal['tanggal'],
+                'jam_mulai'      => $jadwal['jam_mulai'],
+                'jam_selesai'    => $jadwal['jam_selesai'],
+                'jml_org'        => $jadwal['jml_org'],
+                'keterangan'     => 'Test kapasitas rombongan ' . ($idx + 1),
                 'customer_notif' => 1,
                 'admin_notif'    => 1,
                 'created_at'     => $createdDate,
                 'updated_at'     => $createdDate,
             ]);
 
-            // DP dibayar sukses
-            $dpOptions = ['gopay', 'shopeepay', 'bca_va', 'other_qris'];
+            // DP dibayar sukses (Nominal >= 50.000, <= Total Harga)
+            $minDp = 50000;
+            $dpNominal = max($minDp, round(rand($minDp, $totalHarga) / 1000) * 1000);
+            if ($dpNominal > $totalHarga) $dpNominal = $totalHarga;
+
             DB::table('pembayaran')->insert([
                 'id_pesanan'        => $pesananId,
                 'jenis'             => 'DP',
                 'metode'            => $dpOptions[array_rand($dpOptions)],
-                'nominal'           => 50000,
+                'nominal'           => $dpNominal,
                 'snap_token'        => 'snap-dp-' . Str::random(10),
                 'midtrans_order_id' => 'RESERV-' . $reservasiId . '-' . Str::random(5),
-                'status'            => 'Success',
+                'status'            => 'Success', // Pembayaran berhasil
+                'uang_diterima'     => null,
+                'uang_kembali'      => null,
                 'created_at'        => $createdDate,
                 'updated_at'        => $createdDate,
             ]);

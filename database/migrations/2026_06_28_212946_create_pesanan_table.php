@@ -17,7 +17,7 @@ return new class extends Migration
             $table->decimal('total_harga', 12, 2)->default(0);
             // $table->decimal('pb', 12, 2)->default(0);        
             // $table->decimal('total_bayar', 12, 2)->default(0);
-            $table->enum('status', ['Pending', 'Paid', 'Processing', 'Cancelled', 'Completed', 'Confirmed', 'Reserved'])->default('Pending');
+            $table->enum('status', ['Waiting', 'Pending', 'Paid', 'Processing', 'Cancelled', 'Completed', 'Confirmed', 'Reserved'])->default('Pending');
             // $table->enum('metode_pembayaran', ['tunai', 'midtrans'])->nullable(); // dipindah di tabel pembayaran yg baru
             // $table->enum('metode_pelunasan', ['tunai', 'qris', 'debit', 'transfer_bank'])->nullable();
             // $table->string('snap_token')->nullable(); //dipindah di tabel pembayaran yg baru

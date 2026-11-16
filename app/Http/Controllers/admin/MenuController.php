@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Menu;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class MenuController extends Controller
 {
@@ -76,11 +77,22 @@ class MenuController extends Controller
     {
         $validated = $this->validateMenu($request);
 
-        if ($request->hasFile('gambar')) {
-            $validated['gambar'] = $request->file('gambar')->store('menu', 'public');
-        }
+        $storedImage = null;
+        try {
+            if ($request->hasFile('gambar')) {
+                $storedImage = $request->file('gambar')->store('menu', 'public');
+                $validated['gambar'] = $storedImage;
+            }
+            Menu::create($validated);
+        } catch (\Throwable $e) {
+            if ($storedImage) {
+                Storage::disk('public')->delete($storedImage);
+            }
+            Log::error('Gagal menambahkan menu.', ['error' => $e->getMessage()]);
 
-        Menu::create($validated);
+            return back()->withInput($request->except('gambar'))
+                ->with('error', 'Menu gagal ditambahkan. Silakan coba lagi.');
+        }
 
         return redirect()->route('admin.menu')
             ->with('success', 'Menu berhasil ditambahkan.');

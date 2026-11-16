@@ -3,18 +3,16 @@
 @section('title', 'Reservasi - BigBang Eatery')
 
 @section('content')
-<style>
-    #reservasiForm input[type="date"]::-webkit-calendar-picker-indicator,
-    #reservasiForm input[type="time"]::-webkit-calendar-picker-indicator {
-        filter: invert(1);
-        opacity: 1;
-    }
-</style>
-
 <div class="pt-24 pb-10">
     <div class="max-w-4xl mx-auto px-4">
         <h1 class="text-3xl font-black text-center mb-2">📅 Reservasi</h1>
         <p class="text-stone-500 text-center mb-8">Isi formulir di bawah untuk melakukan reservasi meja</p>
+
+        @if($requiresApproval)
+            <div class="mb-5 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 font-medium text-amber-950" role="alert">
+                Reservasi untuk {{ $prefill['jml_org'] }} orang termasuk reservasi skala besar dan memerlukan persetujuan admin untuk penyesuaian meja. Setelah dikirim, Anda belum perlu membayar DP sampai reservasi disetujui.
+            </div>
+        @endif
 
         <div class="bg-white rounded-xl border-4 border-stone-900 shadow-[8px_8px_0_0_rgba(0,0,0,0.3)] p-6 md:p-8">
             @if(session('error'))
@@ -49,11 +47,13 @@
 
                     <!-- No WA -->
                     <div>
-                        <label class="block font-bold mb-1">Nomor Telepon (WhatsApp Kalau Ada) <span class="text-red-500">*</span></label>
+                        <label class="block font-bold mb-1">Nomor WhatsApp <span class="text-stone-400 font-normal text-sm">(Jika Ada)</span></label>
                         <input type="text" name="nomor_telp" value="{{ old('nomor_telp', $prefill['nomor_telp'] ?? '') }}" required placeholder="08xxxxxxxxxx"
                                class="w-full border-2 @error('nomor_telp') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">
                         @error('nomor_telp')
                             <p class="text-red-500 text-xs mt-1 font-bold">⚠️ {{ $message }}</p>
+                        @else
+                            <p class="text-xs text-stone-500 mt-1">📲 Konfirmasi & tiket reservasi akan dikirim ke nomor ini via WhatsApp.</p>
                         @enderror
                     </div>
 
@@ -79,6 +79,8 @@
                                class="w-full border-2 @error('jam_mulai') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">
                         @error('jam_mulai')
                             <p class="text-red-500 text-xs mt-1 font-bold">⚠️ {{ $message }}</p>
+                        @else
+                            <p class="text-xs text-stone-500 mt-1">🕒 Jam operasional reservasi: 15.00 – 24.00 WIB</p>
                         @enderror
                     </div>
 
@@ -90,6 +92,8 @@
                                class="w-full border-2 @error('jam_selesai') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">
                         @error('jam_selesai')
                             <p class="text-red-500 text-xs mt-1 font-bold">⚠️ {{ $message }}</p>
+                        @else
+                            <p class="text-xs text-stone-500 mt-1">🕒 Jam operasional reservasi: 15.00 – 24.00 WIB</p>
                         @enderror
                     </div>
 
@@ -102,6 +106,7 @@
                         @error('jml_org')
                             <p class="text-red-500 text-xs mt-1 font-bold">⚠️ {{ $message }}</p>
                         @enderror
+                        <p id="largeReservationFormNotice" class="{{ $requiresApproval ? '' : 'hidden' }} mt-2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs font-bold text-amber-900">Reservasi lebih dari 10 orang akan ditinjau admin. DP baru dapat dibayar setelah reservasi disetujui.</p>
                     </div>
                 </div>
 
@@ -122,6 +127,7 @@
                             class="px-4 py-2 bg-amber-100 text-stone-700 font-bold rounded-lg border-2 border-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] hover:bg-amber-200 transition">
                         + Tambah Menu
                     </button>
+                    <p class="text-xs text-stone-500 mt-2">💡 Pilih menu makanan & minuman yang ingin disiapkan sebelum kedatangan Anda (minimal pre-order Rp 50.000).</p>
                     
                     @error('menu')
                         <p class="text-red-500 text-xs mt-2 font-bold">⚠️ {{ $message }}</p>
@@ -219,8 +225,17 @@ function updateSelectedMenuSummary(selectedItems) {
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('reservasiForm');
     const submitBtn = document.getElementById('reservasiSubmitBtn');
+    const guestInput = form?.querySelector('[name="jml_org"]');
+    const approvalNotice = document.getElementById('largeReservationFormNotice');
 
     if (!form) return;
+
+    if (guestInput && approvalNotice) {
+        approvalNotice.classList.toggle('hidden', Number(guestInput.value) <= 10);
+    }
+    guestInput?.addEventListener('input', function () {
+        approvalNotice?.classList.toggle('hidden', Number(this.value) <= 10);
+    });
 
     form.addEventListener('submit', function (e) {
         try {

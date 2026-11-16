@@ -44,8 +44,7 @@ Route::prefix('customer')->name('customer.')->group(function () {
     Route::get('/order-status/{kode_pesanan}', [SelfOrderController::class, 'orderStatus'])->name('order.status');
     Route::post('/payment/ulangi/{kode_pesanan}', [PaymentController::class, 'ulangiPembayaran'])->name('payment.ulangi');
     Route::post('/payment/batalkan/{kode_pesanan}', [PaymentController::class, 'batalkanPesanan'])->name('payment.batal');
-    Route::get('/order/{id}/repay', [SelfOrderController::class, 'repayTransaction'])->name('order.repay');
-
+    
     // Reservasi
     Route::get('/reservasi', [BookingController::class, 'reservasiForm'])->name('reservasi.form');
     Route::get('/reservation/menu', [BookingController::class, 'reservationMenu'])->name('reservation.menu');
@@ -60,9 +59,13 @@ Route::prefix('customer')->name('customer.')->group(function () {
 
     // Route::post('/reservasi/pay-dp', [BookingController::class, 'reservasiPayDp'])->name('reservasi.pay-dp');
     Route::get('/reservasi/{kode_pesanan}/detail', [BookingController::class, 'reservasiDetail'])->name('reservasi.detail');
-    Route::post('/reservasi/{id}/update_menu', [BookingController::class, 'reservasiUpdateMenu'])->name('reservasi.update_menu');
+    Route::post('/reservasi/{id}/update_menu', [BookingController::class, 'reservasiUpdateMenu'])
+        ->middleware('signed')
+        ->name('reservasi.update_menu');
     Route::post('/reservasi/{id}/cancel-pending',[BookingController::class, 'cancelPendingReservation'])->name('reservasi.cancel_pending');
-    Route::post('/reservasi/{id}/ulangi-pembayaran',[BookingController::class, 'retryReservationPayment'])->name('reservasi.retry_payment');
+    Route::post('/reservasi/{id}/ulangi-pembayaran',[BookingController::class, 'retryReservationPayment'])
+        ->middleware('signed')
+        ->name('reservasi.retry_payment');
 
 
     // Route::get('/checkout/midtrans/{orderId}', [CustomerController::class, 'checkoutMidtransView'])
@@ -74,11 +77,11 @@ Route::prefix('customer')->name('customer.')->group(function () {
     // Route::post('/midtrans/notification', [CustomerController::class, 'midtransNotification']); // webhook
     
 
-    // SendReservasiNotifications artisan route (untuk testing via web jika perlu)
-    Route::get('/test/send-res-notif', function() {
-        Artisan::call('send:reservasi-notifications');
-        return 'sent';
-    });
+    // SendReservasiNotifications artisan route (untuk testing via web jika perlu) (akan dihapus ini)
+    // Route::get('/test/send-res-notif', function() {
+    //     Artisan::call('send:reservasi-notifications');
+    //     return 'sent';
+    // });
 });
 
 // ===================== AUTH (Login) =====================
@@ -102,8 +105,11 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     // Dashboard (hanya admin)
     Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
     Route::get('/dashboard/sales-data', [AdminController::class, 'salesData'])->name('sales-data');
-    Route::get('/dashboard/rekap', [AdminController::class, 'dailyReport'])
-        ->name('dashboard.report');
+    Route::get('/rekapan', [AdminController::class, 'dailyReport'])
+        ->name('rekapan');
+    Route::get('/rekapan/cetak', [AdminController::class, 'cetak'])->name('cetak');
+    Route::get('/rekapan/cetak', [AdminController::class, 'cetak'])
+        ->name('cetak');
     Route::get('/notifications', [AdminController::class, 'notifications'])
     ->name('notifications');
 
@@ -135,13 +141,16 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     // Meja
     Route::get('/meja/{id?}', [TableController::class, 'table'])->name('meja');
     // Route::get('/meja/{id}/json', [TableController::class, 'mejaJson'])->name('meja.json');
-    Route::post('/meja/store', [TableController::class, 'mejaStore'])->name('meja.store');
-    // Route::put('/meja/{id}/update', [TableController::class, 'mejaUpdate'])->name('meja.update');
+    Route::post('/meja/store', [TableController::class, 'mejaStore'])->middleware('admin')->name('meja.store');
+    Route::put('/meja/{id}/update', [TableController::class, 'mejaUpdate'])->middleware('admin')->name('meja.update');
+    Route::delete('/meja/{id}/delete', [TableController::class, 'mejaDelete'])->middleware('admin')->name('meja.delete');
+    Route::patch('/meja/{id}/active', [TableController::class, 'mejaToggleActive'])->middleware('admin')->name('meja.active');
     Route::post('/meja/{id}/assign-meja', [TableController::class, 'assignMeja'])->name('meja.assign');
 
     // Reservasi
     Route::get('/reservasi/{id?}', [AdminReservationController::class, 'reservasi'])->name('reservasi');
     Route::post('/reservasi/{id}/update', [AdminReservationController::class, 'reservasiUpdate'])->name('reservasi.update');
+    Route::post('/reservasi/{id}/approval', [AdminReservationController::class, 'decideApproval'])->name('reservasi.approval');
     Route::post('/reservasi/{id}/lunas', [AdminReservationController::class, 'lunas'])->name('reservasi.lunas');
     Route::get('/reservasi/{id}/nota', [AdminReservationController::class, 'nota'])
         ->name('reservasi.nota');

@@ -42,7 +42,7 @@
 
             $activityAt = $type === 'reservasi'
                 ? $item->pesanan?->updated_at
-                : (in_array($statusLower, ['paid', 'pending'], true)
+                : (in_array($statusLower, ['waiting', 'paid', 'pending'], true)
                     ? $item->updated_at
                     : $item->created_at);
 
@@ -71,6 +71,7 @@
                             )
                         )
                     )
+                    || ($statusLower === 'waiting')
                     || ($type === 'reservasi' && $statusLower === 'reserved')
                 );
 
@@ -109,6 +110,7 @@
                     <span class="text-sm truncate pr-2">{{ $namaLabel }}</span>
                     <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap capitalize
                         {{ in_array($statusLower, ['paid', 'reserved']) ? 'bg-green-100 text-green-700' : '' }}
+                        {{ $statusLower === 'waiting' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : '' }}
                         {{ $statusLower === 'processing' ? 'bg-yellow-100 text-yellow-700' : '' }}
                         {{ $statusLower === 'confirmed' ? 'bg-yellow-100 text-yellow-700' : '' }}
                         {{ $statusLower === 'completed' ? 'bg-blue-200 text-blue-700' : '' }}

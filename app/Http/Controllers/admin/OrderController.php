@@ -20,7 +20,7 @@ class OrderController extends Controller
             'search' => ['nullable', 'string', 'max:100'],
             'filter.status' => [
                 'nullable',
-                'in:pending,paid,processing,completed,cancelled',
+                'in:waiting,pending,paid,processing,completed,cancelled',
             ],
         ]);
 
@@ -48,7 +48,7 @@ class OrderController extends Controller
         if ($filterStatus !== '') {
             $query->whereRaw('LOWER(TRIM(pesanan.status)) = ?', [$filterStatus]);
         } else {
-            // Default mengecualikan Cancelled; pending hanya pembayaran tunai.
+            // Default mengecualikan Cancelled; pending dengan pembayaran tunai tetap ditampilkan.
             $query->where(function ($q) {
                 $q->whereRaw(
                     "LOWER(TRIM(pesanan.status)) IN ('paid', 'processing', 'completed')"
@@ -57,15 +57,16 @@ class OrderController extends Controller
                         ->whereHas('pembayaran', fn ($payment) => $payment
                             ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
                             ->whereRaw("LOWER(TRIM(metode)) = 'tunai'")
-                            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
                         );
                 });
             });
         }
 
         $pesananList = $query
-            ->orderByDesc('pesanan.created_at')
+            // ID menjadi urutan utama agar pesanan yang baru dibuat selalu berada
+            // di atas, termasuk ketika data test memiliki timestamp simulasi.
             ->orderByDesc('pesanan.id')
+            ->orderByDesc('pesanan.created_at')
             ->paginate(20)
             ->withQueryString();
 
@@ -85,141 +86,85 @@ class OrderController extends Controller
         ));
     }
 
-    // public function orderUpdate(Request $request, $id)
-    // {
-    //     $request->validate([
-    //         'status' => ['required', 'in:pending,paid,Paid,Processing,Completed,processing,completed'],
-    //     ]);
-
-    //     $pesanan = Pesanan::whereDoesntHave('reservasi')->findOrFail($id);
-    //     $current = strtolower($pesanan->status);
-    //     $next = strtolower($request->status);
-    //     $fullPayment = $pesanan->pembayaran()
-    //         ->where('jenis', 'Full')
-    //         ->latest('id')
-    //         ->first();
-
-    //     $validTransition =
-    //         ($current === 'pending' && $next === 'paid'
-    //             && $fullPayment
-    //             && $fullPayment->metode === 'tunai'
-    //             && $fullPayment->status === 'Pending') ||
-    //         ($current === 'paid' && $next === 'processing') ||
-    //         ($current === 'processing' && $next === 'completed');
-
-    //     if (!$validTransition) {
-    //         return back()->with('error', 'Perubahan status pesanan tidak valid.');
-    //     }
-
-    //     DB::transaction(function () use ($pesanan, $fullPayment, $next) {
-    //         if ($next === 'paid') {
-    //             $fullPayment->update(['status' => 'Success']);
-    //         }
-
-    //         $pesanan->status = match ($next) {
-    //             'paid' => 'Paid',
-    //             'processing' => 'Processing',
-    //             'completed' => 'Completed',
-    //         };
-    //         $pesanan->id_user = Auth::id();
-
-    //         if ($next === 'completed' && !$pesanan->completed_at) {
-    //             $pesanan->completed_at = now();
-    //         }
-
-    //         $pesanan->save();
-    //     });
-
-    //     return redirect()->route('admin.selforder', $id)
-    //         ->with('success', 'Status pesanan berhasil diperbarui.');
-    // }
-
     public function orderUpdate(Request $request, $id)
-{
-    $request->validate([
-        'status' => ['required', 'string'],
-    ]);
-
-    $next = strtolower(trim($request->input('status')));
-    abort_unless(in_array($next, ['paid', 'processing', 'completed'], true), 422);
-
-    $pesanan = Pesanan::whereDoesntHave('reservasi')->findOrFail($id);
-    $current = strtolower(trim((string) $pesanan->status));
-
-    $fullPayment = $pesanan->pembayaran()
-        ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
-        ->latest('id')
-        ->first();
-
-    if ($next === 'paid') {
-        // abort_unless(
-        //     $fullPayment
-        //         && strtolower(trim((string) $fullPayment->metode)) === 'tunai'
-        //         && strtolower(trim((string) $fullPayment->status)) === 'pending',
-        //     422,
-        //     'Pembayaran tunai tidak valid.'
-        // );
-        if (
-            $current !== 'pending'
-            || !$fullPayment
-            || strtolower(trim((string) $fullPayment->metode)) !== 'tunai'
-            || strtolower(trim((string) $fullPayment->status)) !== 'pending'
-        ) {
-            return back()->with('error', 'Pembayaran tunai tidak valid atau sudah diproses.');
-        }
-
+    {
         $request->validate([
-            'uang_diterima' => [
-                'required',
-                'integer',
-                'min:' . (int) $pesanan->total_harga,
-            ],
+            'status' => ['required', 'string'],
         ]);
-    } elseif (
-        !(($current === 'paid' && $next === 'processing')
-            || ($current === 'processing' && $next === 'completed'))
-    ) {
-        return back()->with('error', 'Perubahan status pesanan tidak valid.');
-    }
 
-    DB::transaction(function () use ($pesanan, $next, $request) {
-        $pesanan = Pesanan::whereKey($pesanan->id)->lockForUpdate()->firstOrFail();
+        $next = strtolower(trim($request->input('status')));
+        abort_unless(in_array($next, ['paid', 'processing', 'completed'], true), 422);
+
+        $pesanan = Pesanan::whereDoesntHave('reservasi')->findOrFail($id);
+        $current = strtolower(trim((string) $pesanan->status));
+
+        $fullPayment = $pesanan->pembayaran()
+            ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+            ->latest('id')
+            ->first();
 
         if ($next === 'paid') {
-            $payment = $pesanan->pembayaran()
-                ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
-                ->lockForUpdate()
-                ->latest('id')
-                ->firstOrFail();
+            if (
+                $current !== 'pending'
+                || !$fullPayment
+                || strtolower(trim((string) $fullPayment->metode)) !== 'tunai'
+                || strtolower(trim((string) $fullPayment->status)) !== 'pending'
+            ) {
+                return back()->with('error', 'Pembayaran tunai tidak valid atau sudah diproses.');
+            }
 
-            $total = (int) $pesanan->total_harga;
-            $diterima = (int) $request->input('uang_diterima');
-
-            $payment->update([
-                'nominal' => $total,
-                'status' => 'Success',
-                'uang_diterima' => $diterima,
-                'uang_kembali' => $diterima - $total,
+            $request->validate([
+                'uang_diterima' => [
+                    'required',
+                    'integer',
+                    'min:' . (int) $pesanan->total_harga,
+                ],
             ]);
+        } elseif (
+            !(($current === 'paid' && $next === 'processing')
+                || ($current === 'processing' && $next === 'completed'))
+        ) {
+            return back()->with('error', 'Perubahan status pesanan tidak valid.');
         }
 
-        $pesanan->status = match ($next) {
-            'paid' => 'Paid',
-            'processing' => 'Processing',
-            'completed' => 'Completed',
-        };
-        $pesanan->id_user = Auth::id();
+        DB::transaction(function () use ($pesanan, $next, $request) {
+            $pesanan = Pesanan::whereKey($pesanan->id)->lockForUpdate()->firstOrFail();
 
-        if ($next === 'completed' && !$pesanan->completed_at) {
-            $pesanan->completed_at = now();
-        }
+            if ($next === 'paid') {
+                $payment = $pesanan->pembayaran()
+                    ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+                    ->lockForUpdate()
+                    ->latest('id')
+                    ->firstOrFail();
 
-        $pesanan->save();
-    });
+                $total = (int) $pesanan->total_harga;
+                $diterima = (int) $request->input('uang_diterima');
 
-    return redirect()->route('admin.selforder', $id)
-        ->with('success', 'Status pesanan berhasil diperbarui.');
-}
+                $payment->update([
+                    'nominal' => $total,
+                    'status' => 'Success',
+                    'uang_diterima' => $diterima,
+                    'uang_kembali' => $diterima - $total,
+                ]);
+            }
+
+            $pesanan->status = match ($next) {
+                'paid' => 'Paid',
+                'processing' => 'Processing',
+                'completed' => 'Completed',
+            };
+            $pesanan->id_user = Auth::id();
+
+            if ($next === 'completed' && !$pesanan->completed_at) {
+                $pesanan->completed_at = now();
+            }
+
+            $pesanan->save();
+        });
+
+        return redirect()->route('admin.selforder', $id)
+            ->with('success', 'Status pesanan berhasil diperbarui.');
+    }
 
     public function nota($id, NotaService $notaService)
     {

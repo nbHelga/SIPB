@@ -47,6 +47,9 @@
     @if(session('error'))
         <x-alert type="error" :message="session('error')" />
     @endif
+    @if($errors->any())
+        <x-alert type="error" title="Gagal menyimpan menu" :message="$errors->first()" />
+    @endif
     
     <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between mb-6">

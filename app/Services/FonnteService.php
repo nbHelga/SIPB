@@ -9,7 +9,8 @@ class FonnteService
 {
     public function send(?string $phone, string $message): bool
     {
-        if (!$phone || !env('FONNTE_API_KEY')) {
+        // FIX SECURITY-04: gunakan config() bukan env() agar tetap bekerja setelah config:cache
+        if (!$phone || !config('services.fonnte.api_key')) {
             return false;
         }
 
@@ -20,9 +21,9 @@ class FonnteService
 
         try {
             return Http::withHeaders([
-                'Authorization' => trim(env('FONNTE_API_KEY')),
+                'Authorization' => trim(config('services.fonnte.api_key')),
             ])->asForm()->post(
-                env('FONNTE_API_URL', 'https://api.fonnte.com/send'),
+                config('services.fonnte.api_url', 'https://api.fonnte.com/send'),
                 ['target' => $phone, 'message' => $message]
             )->successful();
         } catch (\Throwable $e) {

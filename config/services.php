@@ -35,16 +35,31 @@ return [
         ],
     ],
 
+    'midtrans' => [
+        'server_key'    => env('MIDTRANS_SERVER_KEY'),
+        'client_key'    => env('MIDTRANS_CLIENT_KEY'),
+        'is_production' => filter_var(env('MIDTRANS_IS_PRODUCTION', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     'selforder' => [
-        // TEST: 3 menit. Produksi: atur SELFORDER_PAYMENT_WINDOW_MINUTES=120.
+        // Waktu produksi: 30 menit. Untuk testing gunakan 3 menit.
+        // 'payment_window_minutes' => 30,
         'payment_window_minutes' => (int) env('SELFORDER_PAYMENT_WINDOW_MINUTES', 3),
     ],
 
     'reservation' => [
         // TEST: 3 menit. Produksi: atur RESERVATION_PAYMENT_WINDOW_MINUTES=60.
         'payment_window_minutes' => (int) env('RESERVATION_PAYMENT_WINDOW_MINUTES', 3),
+        'late_grace_minutes' => (int) env('RESERVATION_LATE_GRACE_MINUTES', 30),
     ],
 
     // 'selforder_force_open' => env('SELFORDER_FORCE_OPEN', false),
+
+    // FIX SECURITY-04: pindahkan credential Fonnte dari env() langsung ke config
+    'fonnte' => [
+        'api_key' => env('FONNTE_API_KEY'),
+        'api_url' => env('FONNTE_API_URL', 'https://api.fonnte.com/send'),
+        'phone'   => env('FONNTE_PHONE'),
+    ],
 
 ];

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Reservasi;
 use App\Models\DetailReservasi;
 use App\Models\Meja;
+use App\Models\Pesanan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -18,9 +19,18 @@ class TableController extends Controller
     {
         $today = Carbon::today()->toDateString();
 
-        $allMeja = Meja::orderBy('lantai')->orderBy('nomor_meja')->get();
-        $denahMeja = $allMeja->groupBy('lantai');
-        $lantaiList = $allMeja->pluck('lantai')->unique()->values();
+        $allMeja = Meja::query()->get()->sort(function (Meja $left, Meja $right) {
+            $floorOrder = (int) $left->lantai <=> (int) $right->lantai;
+
+            return $floorOrder !== 0
+                ? $floorOrder
+                : strnatcasecmp($left->nomor_meja, $right->nomor_meja);
+        })->values();
+        $denahMeja = collect([
+            '1' => $allMeja->where('lantai', '1')->values(),
+            '2' => $allMeja->where('lantai', '2')->values(),
+        ]);
+        $lantaiList = collect(['1', '2']);
 
         // Hanya reservasi yang statusnya CONFIRMED untuk alokasi
         $allReservations = Reservasi::with(['customer', 'detailReservasi.meja', 'pesanan'])
@@ -37,6 +47,7 @@ class TableController extends Controller
                 return [
                     'id' => (string) $r->id,
                     'customer_nama' => $r->customer->nama ?? 'Guest',
+                    'jml_org' => $r->jml_org ?? 0,
                     'tanggal' => Carbon::parse($r->tanggal)->format('Y-m-d'),
                     'tgl_formatted' => Carbon::parse($r->tanggal)->format('d/m'),
                     'jam_mulai' => $startCarbon->format('H:i'),
@@ -45,7 +56,12 @@ class TableController extends Controller
                     'start_minutes' => ($startCarbon->hour * 60) + $startCarbon->minute,
                     'end_minutes' => ($endCarbon->hour * 60) + $endCarbon->minute,
                     'status' => $r->pesanan->status ?? 'Confirmed',
-                    'meja_ids' => $r->detailReservasi->pluck('id_meja')->map(fn($id) => (string) $id)->toArray()
+                    'meja_ids' => $r->detailReservasi
+                        ->filter(fn ($detail) => (bool) $detail->meja?->is_active)
+                        ->pluck('id_meja')
+                        ->map(fn ($id) => (string) $id)
+                        ->values()
+                        ->toArray(),
                 ];
             });
 
@@ -72,22 +88,7 @@ class TableController extends Controller
 
         // 2. Hitung Status Lampu Awal Meja (Available/Occupied/Reserved)
         $mejaStatusAwal = [];
-        foreach ($allMeja as $meja) {
-        //     if ($meja->status === 'occupied') {
-        //         $mejaStatusAwal[$meja->id] = 'occupied';
-        //     } else {
-        //         $mejaStatusAwal[$meja->id] = 'available';
-        //         // ini buat kuning awal2
-        //         foreach ($reservasiConfirmed as $res) {
-        //             if (in_array((string)$meja->id, $res['meja_ids'])) {
-        //                 $mejaStatusAwal[$meja->id] = 'reserved';
-        //                 break;
-        //             }
-        //         }
-        //     }
-        // }
-            $mejaStatusAwal[(string) $meja->id] = 'available';
-        }
+        
 
         // $allReservations = $reservasiConfirmed;
 
@@ -120,7 +121,34 @@ class TableController extends Controller
             return $current;
         })->values();
 
-        return view('admin.meja', compact('allMeja', 'denahMeja', 'lantaiList', 'reservasiConfirmed', 'mejaStatusAwal'));
+        foreach ($allMeja as $meja) {
+            $status = !$meja->is_active ? 'inactive' : $meja->status;
+
+            if ($meja->is_active && $status === 'available') {
+                foreach ($reservasiConfirmed as $reservation) {
+                    if (
+                        $reservation['tanggal'] === Carbon::today()->toDateString()
+                        && in_array((string) $meja->id, $reservation['meja_ids'], true)
+                    ) {
+                        $status = 'reserved';
+                        break;
+                    }
+                }
+            }
+
+            $mejaStatusAwal[(string) $meja->id] = $status;
+        }
+
+        $canManageTables = strtolower(trim((string) auth()->user()?->status)) === 'admin';
+
+        return view('admin.meja', compact(
+            'allMeja',
+            'denahMeja',
+            'lantaiList',
+            'reservasiConfirmed',
+            'mejaStatusAwal',
+            'canManageTables'
+        ));
     }
 
     public function mejaJson($id)
@@ -169,29 +197,103 @@ class TableController extends Controller
     public function mejaStore(Request $request)
     {
         $validated = $request->validate([
-            'nomor_meja' => 'required|string|max:10|unique:meja,nomor_meja',
-            'lantai' => 'required|string|max:50',
-            'status' => 'required|in:available,occupied,reserved',
+            'nomor_meja' => ['required', 'string', 'max:10', 'unique:meja,nomor_meja'],
+            'lantai' => ['required', 'in:1,2'],
         ]);
 
-        Meja::create($validated);
+        try {
+            Meja::create([
+                'nomor_meja' => trim($validated['nomor_meja']),
+                'lantai' => $validated['lantai'],
+                'status' => 'available',
+                'is_active' => true,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Gagal menambahkan meja.', ['error' => $e->getMessage()]);
 
-        return redirect()->route('admin.meja')->with('success', 'Alokasi meja berhasil ditambahkan!');
+            return back()->withInput()->with('error', 'Meja gagal ditambahkan. Silakan coba lagi.');
+        }
+
+        return redirect()->route('admin.meja')->with('success', 'Meja berhasil ditambahkan.');
     }
 
-    public function mejaUpdate(Request $request, $id)
+    public function mejaUpdate(Request $request, int $id)
     {
-        $meja = Meja::findOrFail($id);
-
         $validated = $request->validate([
-            'nomor_meja' => 'required|string|max:20',
-            'lantai' => 'required|string|max:50',
-            'status' => 'required|in:available,occupied,reserved',
+            'nomor_meja' => ['required', 'string', 'max:10', 'unique:meja,nomor_meja,' . $id],
+            'lantai' => ['required', 'in:1,2'],
         ]);
 
-        $meja->update($validated);
+        Meja::whereKey($id)->update([
+            'nomor_meja' => trim($validated['nomor_meja']),
+            'lantai' => $validated['lantai'],
+        ]);
 
-        return redirect()->route('admin.meja')->with('success', 'Meja berhasil diupdate!');
+        return redirect()->route('admin.meja')->with('success', 'Nomor dan lantai meja berhasil diperbarui.');
+    }
+
+    public function mejaDelete(int $id)
+    {
+        $table = Meja::findOrFail($id);
+        $hasActiveSelfOrder = Pesanan::query()
+            ->where('id_meja', $table->id)
+            ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'paid', 'processing')")
+            ->exists();
+        $hasActiveReservation = Reservasi::query()
+            ->whereHas('detailReservasi', fn ($details) => $details->where('id_meja', $table->id))
+            ->whereHas('pesanan', fn ($orders) => $orders->whereRaw(
+                "LOWER(TRIM(status)) IN ('pending', 'waiting', 'reserved', 'confirmed', 'processing')"
+            ))
+            ->exists();
+
+        if ($hasActiveSelfOrder || $hasActiveReservation) {
+            return back()->with('error', 'Meja tidak dapat dihapus karena masih digunakan pesanan atau reservasi aktif.');
+        }
+
+        $table->delete();
+
+        return redirect()->route('admin.meja')->with('success', 'Meja berhasil dihapus.');
+    }
+
+    public function mejaToggleActive(Request $request, int $id)
+    {
+        $validated = $request->validate([
+            'is_active' => ['required', 'boolean'],
+        ]);
+        $active = (bool) $validated['is_active'];
+
+        DB::transaction(function () use ($id, $active) {
+            $table = Meja::query()->whereKey($id)->lockForUpdate()->firstOrFail();
+
+            if (!$active) {
+                $hasActiveSelfOrder = Pesanan::query()
+                    ->where('id_meja', $table->id)
+                    ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'paid', 'processing')")
+                    ->exists();
+
+                $hasActiveReservation = Reservasi::query()
+                    ->whereHas('detailReservasi', fn ($details) =>
+                        $details->where('id_meja', $table->id)
+                    )
+                    ->whereHas('pesanan', fn ($orders) => $orders->whereRaw(
+                        "LOWER(TRIM(status)) IN ('pending', 'reserved', 'confirmed', 'processing')"
+                    ))
+                    ->exists();
+
+                if ($hasActiveSelfOrder || $hasActiveReservation) {
+                    throw ValidationException::withMessages([
+                        'is_active' => 'Meja masih terpakai oleh pesanan atau reservasi aktif.',
+                    ]);
+                }
+            }
+
+            $table->update(['is_active' => $active]);
+        }, 3);
+
+        return redirect()->route('admin.meja')->with(
+            'success',
+            $active ? 'Meja berhasil diaktifkan.' : 'Meja berhasil dinonaktifkan.'
+        );
     }
 
     public function assignMeja(Request $request, $id)
@@ -215,6 +317,18 @@ class TableController extends Controller
             ->values();
 
         DB::transaction(function () use ($reservasi, $selectedTableIds) {
+            $lockedTables = Meja::query()
+                ->whereIn('id', $selectedTableIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            if ($lockedTables->contains(fn (Meja $meja) => !$meja->is_active)) {
+                throw ValidationException::withMessages([
+                    'meja_dipilih' => 'Meja nonaktif tidak dapat dialokasikan.',
+                ]);
+            }
+
             $otherReservations = Reservasi::with(['pesanan', 'detailReservasi'])
                 ->whereKeyNot($reservasi->id)
                 ->whereDate('tanggal', $reservasi->tanggal)

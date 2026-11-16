@@ -261,6 +261,7 @@
 
         <div class="font-serif italic text-stone-300 text-xs sm:text-sm md:text-base mb-6 md:mb-8">
             <p>Setiap Hari &nbsp;&nbsp;<span class="not-italic text-amber-400 font-sans block sm:inline mt-1 sm:mt-0">15.00 - 00.00 WIB</span></p>
+            <p class="mt-2 text-[11px] sm:text-xs not-italic font-sans">Reservasi mulai H+1. Rombongan lebih dari 10 orang perlu persetujuan admin.</p>
         </div>
 
         {{-- Form Pengecekan Reservasi --}}
@@ -296,7 +297,7 @@
                 {{-- Select Jumlah Orang --}}
                 <div class="text-left sm:col-span-2 md:col-span-1">
                     <label class="block text-[11px] sm:text-xs font-semibold text-stone-300 mb-1.5 uppercase tracking-wider">Jumlah Orang</label>
-                    <input type="number" name="jml_org" min="1" max="88" placeholder="Contoh: 2" required
+                        <input type="number" name="jml_org" min="1" max="{{ $maxGuests }}" placeholder="Contoh: 2" required
                            class="w-full bg-black/50 border border-stone-600 text-white px-3 py-2.5 rounded focus:outline-none focus:border-red-500 text-xs sm:text-sm">
                 </div>
 
@@ -312,8 +313,21 @@
                 </button>
             </div>
 
-            {{-- Tempat Pesan Error --}}
-            <div id="errorMessage" class="hidden mt-4 p-3 bg-red-900/80 border border-red-500 text-red-200 text-xs sm:text-sm rounded text-center font-medium animate-pulse">
+            {{-- Tempat Pesan Error (Kapasitas Penuh) --}}
+            <div id="errorMessage" class="hidden mt-4 rounded-xl border border-red-500 bg-red-950/90 p-4 text-left text-sm text-red-100" role="alert">
+                <p id="errorText" class="font-medium mb-3"></p>
+                <a href="https://wa.me/6285168170080" target="_blank" rel="noopener" class="inline-block rounded-lg bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-700 transition">
+                    Hubungi Admin
+                </a>
+            </div>
+
+            <div id="largeReservationNotice" class="hidden mt-4 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-left text-sm text-amber-950" role="alert">
+                <p id="largeReservationMessage" class="font-bold"></p>
+                <p class="mt-1">Reservasi lebih dari 10 orang memerlukan persetujuan admin untuk penyesuaian meja. Anda dapat melanjutkan ke formulir atau menghubungi admin terlebih dahulu.</p>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" id="continueLargeReservation" class="rounded-lg bg-amber-600 px-4 py-2 font-bold text-white">Lanjut ke formulir</button>
+                    <a href="https://wa.me/6285168170080" target="_blank" rel="noopener" class="rounded-lg border border-amber-700 bg-white px-4 py-2 font-bold text-amber-900">Hubungi admin</a>
+                </div>
             </div>
         </form>
 
@@ -400,14 +414,73 @@
         // 3. PENGECEKAN AJAX KETERSEDIAAN MEJA RESERVASI
         const formCek = document.getElementById('formCekReservasi');
         const errorDiv = document.getElementById('errorMessage');
+        const errorText = document.getElementById('errorText');
         const btnSubmit = document.getElementById('btnSubmitReservasi');
+        const reservationDate = formCek?.querySelector('[name="tanggal"]');
+        const reservationStart = formCek?.querySelector('[name="jam_mulai"]');
+        const reservationEnd = formCek?.querySelector('[name="jam_selesai"]');
+
+        function minimumReservationDateJakarta() {
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Jakarta',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).formatToParts(new Date());
+            const dateParts = Object.fromEntries(parts.map(part => [part.type, part.value]));
+            const tomorrow = new Date(Date.UTC(
+                Number(dateParts.year),
+                Number(dateParts.month) - 1,
+                Number(dateParts.day) + 1
+            ));
+
+            return tomorrow.toISOString().slice(0, 10);
+        }
+
+        function refreshReservationDateMinimum() {
+            if (reservationDate) {
+                reservationDate.min = minimumReservationDateJakarta();
+                reservationDate.setCustomValidity(
+                    reservationDate.value && reservationDate.value < reservationDate.min
+                        ? 'Reservasi hanya dapat dibuat mulai besok (H+1).'
+                        : ''
+                );
+            }
+        }
+
+        refreshReservationDateMinimum();
+        reservationDate?.addEventListener('focus', refreshReservationDateMinimum);
+        reservationDate?.addEventListener('input', refreshReservationDateMinimum);
+        function validateReservationHours() {
+            const start = reservationStart?.value || '';
+            const end = reservationEnd?.value || '';
+            reservationEnd?.setCustomValidity(end && start && end <= start
+                ? 'Jam selesai harus lebih akhir dari jam mulai.'
+                : '');
+        }
+        reservationStart?.addEventListener('input', validateReservationHours);
+        reservationEnd?.addEventListener('input', validateReservationHours);
+        const largeNotice = document.getElementById('largeReservationNotice');
+        const largeMessage = document.getElementById('largeReservationMessage');
+        const continueLarge = document.getElementById('continueLargeReservation');
+        let checkedRedirectUrl = null;
+        continueLarge.addEventListener('click', () => {
+            if (checkedRedirectUrl) window.location.href = checkedRedirectUrl;
+        });
 
         formCek.addEventListener('submit', function (e) {
+            refreshReservationDateMinimum();
+            validateReservationHours();
+            if (!formCek.reportValidity()) {
+                e.preventDefault();
+                return;
+            }
             e.preventDefault();
             
             // Reset state
             errorDiv.classList.add('hidden');
-            errorDiv.innerText = '';
+            largeNotice.classList.add('hidden');
+            errorText.textContent = '';
             btnSubmit.disabled = true;
             btnSubmit.innerText = 'MEMERIKSA MEJA...';
 
@@ -422,7 +495,7 @@
                 body: formData
             })
             .then(async response => {
-                const data = await response.json();
+                const data = await response.json().catch(() => ({}));
                 if (!response.ok) {
                     throw new Error(data.message || 'Terjadi kesalahan sistem.');
                 }
@@ -430,13 +503,18 @@
             })
             .then(data => {
                 if (data.status === 'success') {
-                    // Jika lolos pengecekan, arahkan ke halaman form reservasi
-                    window.location.href = data.redirect_url;
+                    if (data.large_reservation) {
+                        checkedRedirectUrl = data.redirect_url;
+                        largeMessage.innerText = `Reservasi Anda untuk ${data.guest_count} orang melebihi batas reservasi reguler (10 orang).`;
+                        largeNotice.classList.remove('hidden');
+                    } else {
+                        window.location.href = data.redirect_url;
+                    }
                 }
             })
             .catch(error => {
-                // Jika gagal/kebobolan/kapasitas habis, tampilkan pesan merah
-                errorDiv.innerText = error.message;
+                // Tampilkan pesan merah dengan tombol WA (Lanjut ke form DIBLOKIR)
+                errorText.textContent = error.message || 'Kapasitas meja tidak mencukupi. Silakan pilih jadwal lain atau hubungi admin.';
                 errorDiv.classList.remove('hidden');
             })
             .finally(() => {

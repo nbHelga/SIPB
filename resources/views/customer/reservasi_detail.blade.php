@@ -14,7 +14,12 @@
     {{-- =========================================================================
          UNIFIED ACTION BANNER (CARD FULL WIDTH SEJAJAR DENGAN KONTEN BAWAH)
          ========================================================================= --}}
-    @if($statusPesanan === 'pending')
+    @if($statusPesanan === 'waiting')
+        <div class="w-full rounded-2xl border-4 border-amber-500 bg-amber-50 p-6 md:p-8 md:px-12 shadow-[8px_8px_0_0_rgba(0,0,0,1)] text-center" role="status">
+            <h2 class="text-xl font-black text-amber-900 md:text-2xl">Reservasi Menunggu Persetujuan</h2>
+            <p class="mx-auto mt-3 max-w-2xl text-sm font-bold leading-relaxed text-amber-950">Reservasi skala besar sedang ditinjau oleh tim kami untuk penyesuaian meja. Kami akan memberi tahu Anda setelah disetujui melalui WhatsApp. Pembayaran DP belum dimulai.</p>
+        </div>
+    @elseif($statusPesanan === 'pending')
         <div class="w-full rounded-2xl border-4 {{ $statusPembayaranDp === 'failed' ? 'border-red-600 bg-red-50' : 'border-amber-500 bg-amber-50' }} p-6 md:p-8 md:px-12 shadow-[8px_8px_0_0_rgba(0,0,0,1)] flex flex-col items-center text-center transition-all">
             
             <div class="flex flex-col items-center gap-3 text-center font-black md:flex-row md:justify-center md:gap-4">
@@ -62,8 +67,13 @@
                     <button type="button" onclick="openReservationSnap()" class="w-full sm:w-auto rounded-xl border-2 border-stone-900 bg-[#4A2311] px-8 py-3.5 font-black text-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-[#8B5A2B] active:translate-y-1 active:shadow-none">
                         💳 Lanjutkan Pembayaran
                     </button>
+                @elseif($canStartPayment)
+                    <form action="{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('customer.reservasi.retry_payment', now()->addHours(24), ['id' => $reservasi->id]) }}" method="POST" class="w-full sm:w-auto">
+                        @csrf
+                        <button type="submit" class="w-full sm:w-auto rounded-xl border-2 border-stone-900 bg-emerald-600 px-8 py-3.5 font-black text-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-emerald-700 active:translate-y-1 active:shadow-none">Mulai Pembayaran DP</button>
+                    </form>
                 @elseif($canRetryPayment)
-                    <form action="{{ route('customer.reservasi.retry_payment', ['id' => $reservasi->id]) }}" method="POST" class="w-full sm:w-auto">
+                    <form action="{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('customer.reservasi.retry_payment', now()->addHours(24), ['id' => $reservasi->id]) }}" method="POST" class="w-full sm:w-auto">
                         @csrf
                         <button type="submit" class="w-full sm:w-auto rounded-xl border-2 border-stone-900 bg-emerald-500 px-8 py-3.5 font-black text-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-emerald-600 active:translate-y-1 active:shadow-none">
                             🔄 Ulangi Pembayaran
@@ -82,6 +92,9 @@
             </div>
             <p class="mt-3 text-sm md:text-base font-bold text-stone-600 max-w-xl">
                 Reservasi ini telah dibatalkan secara manual atau batas waktu pembayaran DP telah berakhir.
+                @if($reservasi->rejection_reason)
+                    <span class="mt-2 block">Alasan penolakan: {{ $reservasi->rejection_reason }}</span>
+                @endif
             </p>
             <div class="mt-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
                 <a href="{{ route('customer.reservasi.form') }}" class="w-full sm:w-auto rounded-xl border-2 border-stone-900 bg-white px-8 py-3.5 font-black text-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-stone-50 active:translate-y-1 active:shadow-none">
@@ -94,8 +107,8 @@
     @else
         <div class="py-2">
             <div class="relative mx-auto flex w-full max-w-2xl items-start">
-                <div class="absolute left-[16.66%] right-[16.66%] top-4 h-1 -translate-y-1/2 bg-stone-200 md:top-5"></div>
-                <div class="absolute left-[16.66%] top-4 h-1 -translate-y-1/2 bg-[#660b0b] transition-all md:top-5" style="width: {{ $stepAktif > 1 ? '33.33%' : '0%' }}"></div>
+                <div class="absolute left-[16.66%] right-[16.66%] top-4 z-0 h-1 -translate-y-1/2 bg-stone-200 md:top-5"></div>
+                <div class="absolute left-[16.66%] top-4 z-[1] h-1 -translate-y-1/2 bg-[#660b0b] transition-all md:top-5" style="width: {{ $stepAktif > 1 ? (($stepAktif - 1) * 33.33) . '%' : '0%' }}"></div>
 
                 @foreach($reservationSteps as $index => $step)
                     @php
@@ -123,6 +136,48 @@
         </button>
     </div>
 
+    @if($reservationFinished)
+        <div class="flex flex-col gap-3 rounded-xl border-2 border-amber-500 bg-amber-50 text-amber-950 p-4 sm:flex-row sm:items-center sm:justify-between shadow-[3px_3px_0_0_rgba(245,158,11,0.2)]">
+            <p class="text-sm font-bold leading-relaxed">
+                Simpan atau <em>bookmark</em> tautan halaman ini sebagai bukti reservasi Anda.
+                Tautan juga telah dikirimkan ke nomor WhatsApp Anda (jika terdaftar).
+            </p>
+            <button type="button" id="copy-reservation-link" data-url="{{ $reservationUrl }}" class="shrink-0 rounded-lg border-2 border-stone-900 bg-white px-5 py-2.5 text-sm font-black shadow-[2px_2px_0_0_rgba(0,0,0,1)] transition-all hover:bg-amber-100 active:translate-y-1 active:shadow-none">
+                🔗 Salin Tautan
+            </button>
+        </div>
+    @endif
+
+    {{-- =========================================================================
+         KARTU TIKET (hanya muncul saat status confirmed)
+         ========================================================================= --}}
+    @if($statusPesanan === 'confirmed')
+        <div class="w-full rounded-2xl border-4 border-emerald-600 bg-emerald-50 p-6 md:p-8 shadow-[8px_8px_0_0_rgba(0,0,0,1)] text-center" role="region" aria-label="Tiket Reservasi">
+            <p class="text-xs font-black uppercase tracking-widest text-emerald-700 mb-2">🎟️ Tiket Reservasi</p>
+            <p class="text-stone-500 text-sm font-bold mb-4">Tunjukkan tiket ini kepada staf saat Anda tiba di restoran</p>
+
+            <p class="font-black text-3xl md:text-4xl text-emerald-900 tracking-wider mb-1">
+                {{ $reservasi->pesanan->kode_pesanan }}
+            </p>
+            <p class="text-sm font-bold text-stone-700 mt-4">
+                {{ $reservasi->customer->nama }}
+                &nbsp;•&nbsp;
+                {{ $reservasi->jml_org }} Tamu
+            </p>
+            <p class="text-sm font-bold text-emerald-800 mt-1">
+                {{ \Carbon\Carbon::parse($reservasi->tanggal)->translatedFormat('d M Y') }}
+                &nbsp;|&nbsp;
+                {{ \Carbon\Carbon::parse($reservasi->jam_mulai)->format('H.i') }} – {{ \Carbon\Carbon::parse($reservasi->jam_selesai)->format('H.i') }} WIB
+            </p>
+            @if($reservasi->detailReservasi->isNotEmpty())
+                <p class="text-xs text-stone-500 mt-2">
+                    Meja:
+                    {{ $reservasi->detailReservasi->map(fn($d) => $d->meja?->nomor_meja ?? '-')->implode(', ') }}
+                </p>
+            @endif
+        </div>
+    @endif
+
     {{-- =========================================================================
          KOTAK UTAMA DUAL-PANEL (MURNI UNTUK DATA, BEBAS DARI TOMBOL STATUS)
          ========================================================================= --}}
@@ -142,12 +197,16 @@
 
                 <div class="space-y-4 text-sm md:text-base">
                     <div class="flex justify-between items-center pb-2.5 border-b border-amber-900/30">
-                        <span class="text-stone-300 font-medium">Tamu</span>
+                        <span class="text-stone-300 font-medium">Nama</span>
                         <span class="font-bold text-white text-right">{{ $reservasi->customer->nama }}</span>
                     </div>
                     <div class="flex justify-between items-center pb-2.5 border-b border-amber-900/30">
-                        <span class="text-stone-300 font-medium">WhatsApp</span>
+                        <span class="text-stone-300 font-medium">Nomor Telp.</span>
                         <span class="font-bold text-white text-right">{{ $reservasi->customer->nomor_telp }}</span>
+                    </div>
+                    <div class="flex justify-between items-center pb-2.5 border-b border-amber-900/30">
+                        <span class="text-stone-300 font-medium">Jumlah Orang</span>
+                        <span class="font-bold text-white text-right">{{ $reservasi->jml_org }}</span>
                     </div>
                     <div class="flex justify-between items-center pb-2.5 border-b border-amber-900/30">
                         <span class="text-stone-300 font-medium">Jadwal</span>
@@ -158,9 +217,7 @@
                     </div>
                     <div class="flex items-start justify-between gap-3 border-b border-amber-900/30 pb-2.5">
                         <span class="shrink-0 text-stone-300 font-medium">Catatan Khusus</span>
-                        <div class="max-h-24 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-wrap break-words pr-1 text-right text-stone-200 italic">
-                            {{ $reservasi->keterangan ?: '-' }}
-                        </div>
+                        <div class="max-h-24 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words pr-1 text-right text-stone-200 italic">{{ trim($reservasi->keterangan ?? '') ?: '-' }}</div>
                     </div>
                 </div>
             </div>
@@ -226,25 +283,13 @@
         </div>
     </div>
 
-    @if($reservationFinished)
-        <div class="flex flex-col gap-3 rounded-xl border-2 border-amber-500 bg-amber-50 text-amber-950 p-4 sm:flex-row sm:items-center sm:justify-between shadow-[3px_3px_0_0_rgba(245,158,11,0.2)]">
-            <p class="text-sm font-bold leading-relaxed">
-                Simpan atau <em>bookmark</em> tautan halaman ini sebagai bukti reservasi Anda.
-                Tautan juga telah dikirimkan ke nomor WhatsApp Anda (jika terdaftar).
-            </p>
-            <button type="button" id="copy-reservation-link" data-url="{{ $reservationUrl }}" class="shrink-0 rounded-lg border-2 border-stone-900 bg-white px-5 py-2.5 text-sm font-black shadow-[2px_2px_0_0_rgba(0,0,0,1)] transition-all hover:bg-amber-100 active:translate-y-1 active:shadow-none">
-                🔗 Salin Tautan
-            </button>
-        </div>
-    @endif
-
     {{-- KOMPONEN POPUP MENU EDIT --}}
     @if($bisaUbahMenu)
         <x-menu-popup 
             :menus="$menus" 
             :is-edit="true" 
             :pesanan-terkait="$pesanan"
-            :action-url="route('customer.reservasi.update_menu', $reservasi->id)"
+            :action-url="\Illuminate\Support\Facades\URL::temporarySignedRoute('customer.reservasi.update_menu', now()->addHours(24), ['id' => $reservasi->id])"
             :minimum-total="$nominalDp"
         />
     @endif
@@ -272,6 +317,17 @@
     const timer = document.getElementById('reservation-countdown');
     if (timer) {
         const expiresAt = Number(timer.dataset.expiresAt);
+        let expiryHandled = false;
+        const reloadOnceAtExpiry = () => {
+            if (expiryHandled) return;
+            expiryHandled = true;
+            document.querySelectorAll('button, form, a').forEach((element) => {
+                if (element.tagName === 'A') element.setAttribute('aria-disabled', 'true');
+                else element.disabled = true;
+            });
+            document.getElementById('reservation-expired-message')?.classList.remove('hidden');
+            window.location.reload();
+        };
         function updateCountdown() {
             const remaining = expiresAt - Date.now();
             if (remaining <= 0) {
@@ -280,6 +336,7 @@
                 document.getElementById('reservation-expired-message')?.classList.remove('hidden');
                 document.querySelector('[onclick*="editMenuModal"]')?.setAttribute('disabled', 'disabled');
                 document.getElementById('editMenuModal')?.classList.add('hidden');
+                reloadOnceAtExpiry();
                 return;
             }
             const totalSeconds = Math.floor(remaining / 1000);

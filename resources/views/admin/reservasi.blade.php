@@ -18,8 +18,16 @@
 
     <!-- LEFTSIDE (Drawer di Mobile, Sidebar Statis di Desktop) -->
     <aside
-        :class="sidebarOpen ? 'translate-x-0 shadow-[8px_0_15px_-3px_rgba(0,0,0,0.5)]' : '-translate-x-full xl:translate-x-0 xl:shadow-none'"
-        class="reservation-sidebar fixed inset-y-0 left-0 z-50 h-full w-[85vw] max-w-[320px] flex-shrink-0 transition-transform duration-300 ease-in-out xl:static xl:inset-auto xl:z-auto xl:h-full xl:w-80 xl:max-w-none xl:translate-x-0 xl:transform-none xl:shadow-none"
+        :class="sidebarOpen 
+            ? 'translate-x-0 shadow-[8px_0_15px_-3px_rgba(0,0,0,0.5)]' 
+            : '-translate-x-full xl:translate-x-0 xl:shadow-none'"
+        class="
+            reservation-sidebar fixed inset-y-0 left-0 z-50 
+            h-full w-[85vw] max-w-[320px] flex-shrink-0 
+            transition-transform duration-300 ease-in-out 
+            xl:static xl:inset-auto xl:z-auto 
+            xl:h-full xl:w-80 xl:max-w-none 
+            xl:translate-x-0 xl:transform-none xl:shadow-none"
     >
         <div class="flex h-full flex-col overflow-hidden rounded-r-xl border-2 border-stone-300 bg-white shadow-[4px_4px_0_0_rgba(0,0,0,0.15)] xl:rounded-xl">
             <!-- Header Mobile dengan Background Cokelat -->
@@ -79,7 +87,7 @@
                             'confirmed' => 'Confirmed',
                             'completed' => 'Completed',
                             'cancelled' => 'Cancelled',
-                            'pending' => 'Pending',
+                            'waiting' => 'Awaiting approval',
                         ]],
                     ]" action="{{ route('admin.reservasi') }}" />
                 </div>
@@ -115,21 +123,64 @@
                     $currentStatus = strtolower($selectedReservasi->pesanan->status ?? '');
                 @endphp
 
-                <div class="flex items-center gap-2 mb-4 pb-4 border-b border-stone-200">
-                    @if($currentStatus === 'reserved')
+                <div class="flex items-center gap-2 mb-4 pb-4 border-b border-stone-200" x-data="{ rejectModalOpen: false }">
+                    @if($currentStatus === 'waiting')
+                        <form action="{{ route('admin.reservasi.approval', $selectedReservasi->id) }}" method="POST" class="flex flex-wrap items-center gap-2">
+                            @csrf
+                            <input type="hidden" name="decision" value="approve">
+                            <button type="submit" class="rounded-lg border-2 border-stone-900 bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Setujui</button>
+                        </form>
+
+                        {{-- Tombol Tolak: hanya buka modal --}}
+                        <button type="button" @click="rejectModalOpen = true"
+                                class="rounded-lg border-2 border-stone-900 bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800 transition-all">
+                            Tolak
+                        </button>
+
+                        {{-- Modal Penolakan --}}
+                        <div x-show="rejectModalOpen" x-cloak
+                             class="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/60 backdrop-blur-sm"
+                             @click.self="rejectModalOpen = false"
+                             x-transition.opacity>
+                            <div class="w-full max-w-sm rounded-xl border-4 border-stone-900 bg-white p-6 shadow-[8px_8px_0_0_rgba(0,0,0,1)]"
+                                 @click.stop>
+                                <h3 class="text-base font-black text-stone-900 mb-1">Tolak Reservasi</h3>
+                                <p class="text-xs text-stone-500 mb-4">Masukkan alasan penolakan untuk dikirim ke customer.</p>
+                                <form action="{{ route('admin.reservasi.approval', $selectedReservasi->id) }}" method="POST">
+                                    @csrf
+                                    <input type="hidden" name="decision" value="reject">
+                                    <textarea name="rejection_reason" required maxlength="1000"
+                                              rows="3"
+                                              placeholder="Contoh: Tidak ada meja tersedia untuk tanggal tersebut."
+                                              class="w-full rounded-lg border-2 border-stone-300 px-3 py-2 text-sm focus:border-red-600 focus:outline-none resize-none"></textarea>
+                                    <div class="mt-4 flex gap-2 justify-end">
+                                        <button type="button" @click="rejectModalOpen = false"
+                                                class="rounded-lg border-2 border-stone-300 px-4 py-2 text-sm font-bold text-stone-700 hover:bg-stone-100">
+                                            Batal
+                                        </button>
+                                        <button type="submit"
+                                                class="rounded-lg border-2 border-stone-900 bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800">
+                                            Konfirmasi Penolakan
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                    @elseif($currentStatus === 'reserved')
                         <form action="{{ route('admin.reservasi.update', $selectedReservasi->id) }}" method="POST" class="inline">
                             @csrf
                             <input type="hidden" name="status" value="confirmed">
-                            <button type="submit" class="px-4 py-2 bg-yellow-500 text-white font-bold rounded-lg border-2 border-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] hover:bg-yellow-6 00 active:shadow-none active:translate-y-1 transition-all text-sm flex items-center gap-1">
+                            <button type="submit" class="px-4 py-2 bg-yellow-500 text-white font-bold rounded-lg border-2 border-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] hover:bg-yellow-600 active:shadow-none active:translate-y-1 transition-all text-sm flex items-center gap-1">
                                 ✔ Konfirmasi
                             </button>
                         </form>
                     @elseif($currentStatus === 'confirmed')
-                        @php
-                            $totalHarga = $selectedReservasi->pesanan->total_harga ?? 0;
-                            $dp = $selectedReservasi->dp_bayar ?? 0; 
-                            $sisaTagihan = max(0, $totalHarga - $dp);
-                        @endphp
+                        <form action="{{ route('admin.reservasi.update', $selectedReservasi->id) }}" method="POST" onsubmit="return confirm('Batalkan reservasi confirmed ini? Alokasi meja akan dilepas.');">
+                            @csrf
+                            <input type="hidden" name="status" value="cancelled">
+                            <button type="submit" class="rounded-lg border-2 border-red-800 bg-red-700 px-4 py-2 text-sm font-bold text-white">Batalkan Reservasi</button>
+                        </form>
 
                         @if ($sisaTagihan > 0)
                         <button type="button" 
@@ -139,7 +190,7 @@
                                     sisa_tagihan: {{ $sisaTagihan }}
                                 })"
                                 class="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg border-2 border-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] hover:bg-blue-600 active:shadow-none active:translate-y-1 transition-all text-sm flex items-center gap-1">
-                            💰 Pelunasan & Selesai
+                            💰 Pelunasan &amp; Selesai
                         </button>
                         @else
                             <form action="{{ route('admin.reservasi.update', $selectedReservasi->id) }}" method="POST" class="inline">

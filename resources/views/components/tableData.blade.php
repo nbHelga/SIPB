@@ -9,9 +9,9 @@
 <div class="overflow-x-auto rounded-lg border-2 border-stone-300 shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] bg-white">
     <table class="w-full text-sm">
         <thead>
-            <tr class="bg-amber-100 border-b-2 border-stone-300">
+            <tr class="bg-[#4A2311] border-b-2 border-stone-300">
                 @foreach($headers as $header)
-                    <th class="px-4 py-3 text-left font-bold text-stone-700 {{ $header['class'] ?? '' }}">
+                    <th class="px-4 py-3 text-left font-bold text-white {{ $header['class'] ?? '' }}">
                         {{ $header['label'] }}
                     </th>
                 @endforeach

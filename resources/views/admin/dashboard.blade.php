@@ -9,34 +9,6 @@
         <h1 class="text-xl font-black text-stone-900 sm:text-2xl">
             Dashboard {{ $isKasir ? 'Kasir' : 'Admin' }}
         </h1>
-
-        <div class="flex flex-wrap items-center gap-2">
-            <form method="GET" action="{{ route('admin.dashboard') }}" class="flex flex-wrap items-center gap-2">
-                <label for="dashboard-tanggal" class="text-sm font-bold">Tanggal rekap</label>
-                <input
-                    id="dashboard-tanggal"
-                    type="date"
-                    name="tanggal"
-                    value="{{ $filterTanggal }}"
-                    class="rounded-lg border-2 border-stone-900 px-3 py-2 text-sm"
-                >
-                <button
-                    type="submit"
-                    class="rounded-lg border-2 border-stone-900 bg-[#4A2311] px-3 py-2 text-sm font-bold text-white"
-                >
-                    Terapkan
-                </button>
-            </form>
-
-            <a
-                href="{{ route('admin.dashboard.report', ['tanggal' => $filterTanggal]) }}"
-                target="_blank"
-                rel="noopener"
-                class="rounded-lg border-2 border-stone-900 bg-emerald-700 px-3 py-2 text-sm font-bold text-white"
-            >
-                Cetak Rekap
-            </a>
-        </div>
     </div>
 
     <!-- 4 KOTAK METRIK -->
@@ -78,154 +50,80 @@
         </div>
     </div>
 
-    {{-- <!-- GRAFIK BARIS 1 -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Grafik Penjualan (Daily) -->
-        <div class="lg:col-span-2 bg-white p-5 rounded-xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)]">
-            <h3 class="font-black text-stone-900 mb-4">Tren Pendapatan Harian (7 Hari Terakhir)</h3>
-            <canvas id="salesChart" height="100"></canvas>
+    @if($isKasir)
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <a href="{{ route('admin.selforder') }}" class="flex items-center justify-between rounded-xl border-4 border-stone-900 bg-[#4A2311] p-5 shadow-[6px_6px_0_0_rgba(0,0,0,1)] transition-transform hover:-translate-y-1 hover:shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
+                <div>
+                    <h3 class="text-lg font-black text-white">Kelola Self-Order</h3>
+                    <p class="text-xs font-medium text-stone-300 mt-1">Terima pembayaran & proses pesanan meja</p>
+                </div>
+                <span class="text-3xl">🛎️</span>
+            </a>
+            <a href="{{ route('admin.reservasi') }}" class="flex items-center justify-between rounded-xl border-4 border-stone-900 bg-white p-5 shadow-[6px_6px_0_0_rgba(0,0,0,1)] transition-transform hover:-translate-y-1 hover:shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
+                <div>
+                    <h3 class="text-lg font-black text-stone-900">Daftar Reservasi</h3>
+                    <p class="text-xs font-medium text-stone-500 mt-1">Pantau tamu reservasi hari ini</p>
+                </div>
+                <span class="text-3xl">📅</span>
+            </a>
         </div>
+    @endif
 
-        <!-- Penjualan per Kategori -->
-        <div class="bg-white p-5 rounded-xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)] flex flex-col">
-            <h3 class="font-black text-stone-900 mb-4">Penjualan per Kategori ({{ \Carbon\Carbon::parse($filterTanggal)->format('d M') }})</h3>
-            <div class="flex-1 relative w-full flex justify-center items-center">
-                <canvas id="categoryChart"></canvas>
+    <section class="overflow-hidden rounded-xl border-4 border-stone-900 bg-white shadow-[6px_6px_0_0_rgba(0,0,0,1)]">
+        <div class="border-b-4 border-stone-900 bg-[#4A2311] p-4 sm:p-5 flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-black text-white">Pesanan Terakhir Hari Ini</h2>
+                <p class="mt-1 text-xs font-medium text-stone-300">10 transaksi terbaru (Real-time)</p>
             </div>
         </div>
-    </div>
-
-    <!-- GRAFIK BARIS 2 -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        <!-- Metode Pembayaran -->
-        <div class="bg-white p-5 rounded-xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)]">
-            <h3 class="font-black text-stone-900 mb-4">Cara Pembayaran ({{ \Carbon\Carbon::parse($filterTanggal)->format('d M') }})</h3>
-            <canvas id="paymentChart"></canvas>
-            
-            <div class="mt-4 space-y-2">
-                @foreach($paymentMethods as $method => $total)
-                    <div class="flex justify-between text-xs font-bold">
-                        <span class="capitalize">{{ str_replace('_', ' ', $method) }}</span>
-                        <span>Rp {{ number_format($total, 0, ',', '.') }}</span>
+        <div class="flex flex-col p-3 sm:p-4 gap-3 max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-stone-400">
+            @forelse($recentOrders as $order)
+                @php 
+                    $isReservation = (bool) $order->reservasi; 
+                    $statusColor = match(strtolower($order->status)) {
+                        'completed' => 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                        'processing' => 'bg-blue-100 text-blue-800 border-blue-300',
+                        'paid' => 'bg-yellow-100 text-yellow-800 border-yellow-300',
+                        'pending' => 'bg-amber-100 text-amber-800 border-amber-300',
+                        'cancelled' => 'bg-red-100 text-red-800 border-red-300',
+                        default => 'bg-stone-100 text-stone-800 border-stone-300'
+                    };
+                @endphp
+                <div class="flex items-center justify-between rounded-lg border-2 border-stone-200 bg-stone-50 p-3 transition-colors hover:border-stone-400">
+                    <div class="flex items-center gap-4">
+                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-stone-900 bg-white text-lg">
+                            {{ $isReservation ? '📅' : '🛎️' }}
+                        </div>
+                        <div>
+                            <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                                <span class="font-black text-stone-900">{{ $order->kode_pesanan }}</span>
+                                <span class="rounded-md border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] font-bold text-stone-600">
+                                    {{ $isReservation ? 'Reservasi' : 'Self-Order' }}
+                                </span>
+                                <span class="rounded-md border {{ $statusColor }} px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                                    {{ $order->status }}
+                                </span>
+                            </div>
+                            <p class="text-xs font-bold text-stone-500 mt-0.5">
+                                {{ $order->created_at?->copy()->timezone('Asia/Jakarta')->format('H.i') ?? '-' }} WIB • 
+                                {{ $isReservation ? ($order->reservasi->customer->nama ?? 'Reservasi') : ('Meja ' . ($order->meja->nomor_meja ?? '-')) }}
+                            </p>
+                        </div>
                     </div>
-                @endforeach
-            </div>
+                    <div class="text-right">
+                        <span class="block text-sm font-black text-[#8B5A2B]">Rp {{ number_format((float) $order->total_harga, 0, ',', '.') }}</span>
+                    </div>
+                </div>
+            @empty
+                <div class="flex flex-col items-center justify-center p-8 text-center">
+                    <span class="text-4xl" aria-hidden="true">📭</span>
+                    <p class="mt-3 text-sm font-bold text-stone-500">Belum ada transaksi hari ini.</p>
+                </div>
+            @endforelse
         </div>
+    </section>
 
-        <!-- Top 5 Menus & Tabel Rincian -->
-        <div class="lg:col-span-2 bg-white p-5 rounded-xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)]">
-            <h3 class="font-black text-stone-900 mb-4">5 Menu Terlaris ({{ \Carbon\Carbon::parse($filterTanggal)->format('d M') }})</h3>
-            <canvas id="topMenuChart" height="80"></canvas>
 
-            <h3 class="font-black text-stone-900 mt-8 mb-4 border-t-2 border-dashed border-stone-300 pt-4">Rincian Total Porsi Menu Terjual</h3>
-            <div class="max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-stone-900">
-                <table class="w-full text-left text-sm">
-                    <thead class="bg-[#4A2311] text-white font-bold sticky top-0">
-                        <tr>
-                            <th class="p-3 rounded-tl-lg">Nama Menu</th>
-                            <th class="p-3">Kategori</th>
-                            <th class="p-3 text-center rounded-tr-lg">Porsi Terjual</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($menuPortions as $menu)
-                        <tr class="border-b border-stone-200 hover:bg-amber-50 font-medium">
-                            <td class="p-3">{{ $menu->nama }}</td>
-                            <td class="p-3">{{ $menu->kategori }}</td>
-                            <td class="p-3 text-center font-black text-[#4A2311] bg-stone-100">{{ $menu->total_porsi }}</td>
-                        </tr>
-                        @endforeach
-                        @if($menuPortions->isEmpty())
-                        <tr>
-                            <td colspan="3" class="p-4 text-center text-stone-500 font-bold italic">Belum ada data penjualan pada tanggal ini.</td>
-                        </tr>
-                        @endif
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-</div>
-
-<!-- CHART.JS CDN -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-    // 1. CHART TREN PENJUALAN
-    new Chart(document.getElementById('salesChart'), {
-        type: 'line',
-        data: {
-            labels: {!! json_encode($salesChart['labels']) !!},
-            datasets: [{
-                label: 'Total Pendapatan (Rp)',
-                data: {!! json_encode($salesChart['data']) !!},
-                borderColor: '#4A2311',
-                backgroundColor: 'rgba(74, 35, 17, 0.1)',
-                borderWidth: 3,
-                fill: true,
-                tension: 0.4
-            }]
-        },
-        options: { responsive: true, plugins: { legend: { display: false } } }
-    });
-
-    // 2. CHART KATEGORI
-    new Chart(document.getElementById('categoryChart'), {
-        type: 'pie',
-        data: {
-            labels: {!! json_encode(array_keys($categorySales)) !!},
-            datasets: [{
-                data: {!! json_encode(array_values($categorySales)) !!},
-                backgroundColor: ['#e11d48', '#059669', '#d97706', '#2563eb', '#7c3aed'],
-                borderWidth: 2,
-                borderColor: '#1c1917' // stone-900
-            }]
-        },
-        options: { responsive: true }
-    });
-
-    // 3. CHART METODE PEMBAYARAN
-    new Chart(document.getElementById('paymentChart'), {
-        type: 'doughnut',
-        data: {
-            labels: {!! json_encode(array_keys($paymentMethods)) !!},
-            datasets: [{
-                data: {!! json_encode(array_values($paymentMethods)) !!},
-                backgroundColor: ['#fbbf24', '#34d399', '#60a5fa', '#a78bfa', '#f472b6'],
-                borderWidth: 2,
-                borderColor: '#1c1917',
-                cutout: '60%'
-            }]
-        },
-        options: { responsive: true }
-    });
-
-    // 4. CHART TOP 5 MENU
-    const topMenuLabels = {!! json_encode($top5Menus->pluck('nama')) !!};
-    const topMenuData = {!! json_encode($top5Menus->pluck('total_porsi')) !!};
-    
-    new Chart(document.getElementById('topMenuChart'), {
-        type: 'bar',
-        data: {
-            labels: topMenuLabels,
-            datasets: [{
-                label: 'Porsi Terjual',
-                data: topMenuData,
-                backgroundColor: '#059669', // Emerald
-                borderColor: '#1c1917',
-                borderWidth: 2,
-                borderRadius: 4
-            }]
-        },
-        options: {
-            indexAxis: 'y', // Horizontal Bar Chart
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
-        }
-    });
-</script> --}}
     @unless($isKasir)
         <div class="mt-5 grid min-w-0 grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
             <div class="min-w-0 overflow-hidden rounded-xl border border-stone-300 bg-white p-3 shadow sm:p-4 lg:col-span-2">
@@ -244,8 +142,14 @@
             </div>
 
             <div class="min-w-0 overflow-hidden rounded-xl border border-stone-300 bg-white p-3 shadow sm:p-4">
-                <h3 class="mb-2 font-bold">Top 5 Menu</h3>
-                <div id="chartTopMenu" class="min-w-0"></div>
+                <h3 class="mb-2 font-bold">Top 5 Menu Bulan Ini</h3>
+                @if($topMenus->isNotEmpty())
+                    <div id="chartTopMenu" class="min-w-0"></div>
+                @else
+                    <div class="flex h-[300px] items-center justify-center rounded-lg bg-stone-50 p-4 text-center text-sm font-bold text-stone-500">
+                        Belum ada menu terjual dari pesanan selesai bulan ini.
+                    </div>
+                @endif
             </div>
 
             <div class="min-w-0 overflow-hidden rounded-xl border border-stone-300 bg-white p-3 shadow sm:p-4">
@@ -254,59 +158,6 @@
             </div>
         </div>
     @endunless
-     <!-- Top 5 Menus & Tabel Rincian -->
-    <div class="lg:col-span-2 bg-white p-5 rounded-xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)]">
-        {{-- <h3 class="font-black text-stone-900 mb-4">5 Menu Terlaris ({{ \Carbon\Carbon::parse($filterTanggal)->format('d M') }})</h3> --}}
-        {{-- <canvas id="topMenuChart" height="80"></canvas> --}}
-
-        {{-- <h3 class="font-black text-stone-900 mt-8 mb-4 border-t-2 border-dashed border-stone-300 pt-4">Rincian Total Porsi Menu Terjual</h3> --}}
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h3 class="font-black text-stone-900">Rincian Total Porsi Menu Terjual</h3>
-
-            {{-- <form method="GET" action="{{ route('admin.dashboard') }}" class="flex items-center gap-2">
-                <label for="tanggal" class="text-sm font-bold">Tanggal</label>
-                <input
-                    id="tanggal"
-                    type="date"
-                    name="tanggal"
-                    value="{{ $filterTanggal }}"
-                    class="rounded-lg border-2 border-stone-900 px-3 py-2 text-sm"
-                >
-                <button type="submit"
-                        class="rounded-lg border-2 border-stone-900 bg-[#4A2311] px-3 py-2 text-sm font-bold text-white">
-                    Filter
-                </button>
-            </form> --}}
-        </div>
-        <div class="max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-stone-900">
-            <table class="w-full text-left text-sm">
-                <thead class="bg-[#4A2311] text-white font-bold sticky top-0">
-                    <tr>
-                        <th class="p-3 rounded-tl-lg">Nama Menu</th>
-                        <th class="p-3">Kategori</th>
-                        <th class="p-3 text-center rounded-tr-lg">Porsi Terjual</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($menuPortions as $menu)
-                    <tr class="border-b border-stone-200 hover:bg-amber-50 font-medium">
-                        <td class="p-3">{{ $menu->nama }}</td>
-                        <td class="p-3">{{ $menu->kategori }}</td>
-                        <td class="p-3 text-center font-black text-[#4A2311] bg-stone-100">{{ $menu->total_porsi }}</td>
-                    </tr>
-                    @endforeach
-                    @if($menuPortions->isEmpty())
-                    <tr>
-                        <td colspan="3" class="p-4 text-center text-stone-500 font-bold italic">Belum ada data penjualan pada tanggal ini.</td>
-                    </tr>
-                    @endif
-                </tbody>
-            </table>
-        </div>
-        <div class="mt-4">
-            {{ $menuPortions->links() }}
-        </div>
-    </div>
     <!-- Kartu Pratinjau QR Code Meja di Admin -->
     {{-- <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-4">
         @foreach($mejas as $meja)
@@ -331,6 +182,7 @@
     </div> --}}
 </div>
 
+@unless($isKasir)
 <script>
     // Data dari Controller
     const revData = @json($revenueTrend);
@@ -379,7 +231,8 @@
     }).render();
 
     // 5. Horizontal Bar: Top Menus
-    new ApexCharts(document.querySelector("#chartTopMenu"), {
+    const topMenuElement = document.querySelector("#chartTopMenu");
+    if (topMenuElement && topData.length) new ApexCharts(topMenuElement, {
         chart: { type: 'bar', height: 300, toolbar: { show: false } },
         plotOptions: { bar: { horizontal: true, borderRadius: 4 } },
         series: [{ name: 'Porsi Terjual', data: topData.map(t => t.total_porsi) }],
@@ -387,10 +240,11 @@
         colors: ['#EF4444']
     }).render();
 </script>
-{{-- <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-    const topMenuLabels = {!! json_encode($top5Menus->pluck('nama')) !!};
-    const topMenuData = {!! json_encode($top5Menus->pluck('total_porsi')) !!};
+@endunless
+{{-- <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> --}}
+{{-- <script>
+    const topMenuLabels = {!! json_encode($topMenus->pluck('nama')) !!};
+    const topMenuData = {!! json_encode($topMenus->pluck('total_porsi')) !!};
     new Chart(document.getElementById('topMenuChart'), {
         type: 'bar',
         data: {
@@ -410,6 +264,6 @@
             plugins: { legend: { display: false } },
             scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
         }
-    }); --}}
-</script>
+    });
+</script> --}}
 @endsection

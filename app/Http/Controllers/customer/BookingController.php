@@ -5,6 +5,9 @@ namespace App\Http\Controllers\customer;
 use App\Http\Controllers\Controller;
 use App\Services\MenuQuoteService;
 use App\Services\MidtransPaymentMethod;
+use App\Services\ReservationCapacityService;
+use App\Services\FonnteService;
+use App\Services\MidtransConfigService;
 use App\Models\Menu;
 use App\Models\Pesanan;
 use App\Models\DetailPesanan;
@@ -20,44 +23,12 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Midtrans\Snap;
 use Midtrans\Transaction;
-use Midtrans\Config as MidtransConfig;
 use Carbon\Carbon;
 
 class BookingController extends Controller
 {
     // private const RESERVATION_PAYMENT_WINDOW_MINUTES = 1;
     // private const RESERVATION_PAYMENT_WINDOW_MINUTES = 60;
-    private const RESERVATION_CAPACITY = 88;
-
-    private function reservationCapacityUsed(
-        string $date,
-        string $start,
-        string $end
-    ): int {
-        $pendingExpiresAt = now()->subMinutes($this->reservationPaymentWindowMinutes());
-
-        return (int) Reservasi::query()
-            ->whereDate('tanggal', $date)
-            ->where('jam_mulai', '<', $end)
-            ->where('jam_selesai', '>', $start)
-            ->where(function ($reservations) use ($pendingExpiresAt) {
-                $reservations
-                    ->whereHas('pesanan', function ($order) {
-                        $order->whereRaw(
-                            "LOWER(TRIM(status)) IN ('reserved', 'confirmed', 'processing')"
-                        );
-                    })
-                    ->orWhere(function ($pending) use ($pendingExpiresAt) {
-                        $pending
-                            ->where('created_at', '>=', $pendingExpiresAt)
-                            ->whereHas('pesanan', function ($order) {
-                                $order->whereRaw("LOWER(TRIM(status)) = 'pending'");
-                            });
-                    });
-            })
-            ->sum('jml_org');
-    }
-
     private function isMidtransTransactionNotFound(\Throwable $e): bool
     {
         return (int) $e->getCode() === 404
@@ -67,7 +38,7 @@ class BookingController extends Controller
 
     private function findPendingReservationForPhone(string $phone): ?Reservasi
     {
-        $customer = Customer::where('nomor_telp', $phone)->first();
+        $customer = $this->findCustomerByPhone($phone);
 
         if (!$customer) {
             return null;
@@ -76,13 +47,25 @@ class BookingController extends Controller
         return Reservasi::query()
             ->where('id_customer', $customer->id)
             ->whereHas('pesanan', function ($query) {
-                $query->whereRaw("LOWER(TRIM(status)) = 'pending'")
-                    ->whereHas('pembayaran', function ($payment) {
-                        $payment->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                            ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'failed')");
+                $query->whereRaw("LOWER(TRIM(status)) = 'waiting'")
+                    ->orWhere(function ($q) {
+                        $q->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                          ->whereHas('pembayaran', function ($payment) {
+                              $payment->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
+                                  ->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                          });
                     });
             })
             ->latest('id')
+            ->first();
+    }
+
+    private function findCustomerByPhone(string $phone): ?Customer
+    {
+        $normalized = preg_replace('/\D+/', '', $phone);
+
+        return Customer::query()
+            ->whereRaw("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(nomor_telp, ' ', ''), '-', ''), '+', ''), '(', ''), ')', ''), '.', '') = ?", [$normalized])
             ->first();
     }
 
@@ -103,6 +86,33 @@ class BookingController extends Controller
         }
 
         return $lines;
+    }
+
+    private function reservationDraftErrors(array $draft): array
+    {
+        $minimumDate = Carbon::now('Asia/Jakarta')->addDay()->toDateString();
+        $validator = Validator::make($draft, [
+            'nama' => 'required|string|min:3|max:50',
+            'nomor_telp' => 'required|string|regex:/^[0-9\+\-\s]{9,20}$/',
+            'tanggal' => ['required', 'date_format:Y-m-d', 'after_or_equal:' . $minimumDate],
+            'jam_mulai' => 'required|date_format:H:i',
+            'jam_selesai' => 'required|date_format:H:i|after:jam_mulai',
+            'jml_org' => 'required|integer|min:1', // FIX UX-02
+            'keterangan' => 'nullable|string|max:200',
+        ], [
+            'tanggal.after_or_equal' => 'Reservasi hanya dapat dibuat mulai besok (H+1).',
+            'jam_selesai.after' => 'Jam selesai harus lebih akhir dari jam mulai.',
+        ]);
+        $errors = $validator->errors()->all();
+
+        if (!$validator->errors()->has('jam_mulai') && !$validator->errors()->has('jam_selesai')) {
+            if (($draft['jam_mulai'] ?? '') < '15:00' || ($draft['jam_mulai'] ?? '') > '23:59'
+                || ($draft['jam_selesai'] ?? '') < '15:00' || ($draft['jam_selesai'] ?? '') > '23:59') {
+                $errors[] = 'Jam mulai dan selesai harus berada dalam jam operasional 15.00–23.59 WIB.';
+            }
+        }
+
+        return $errors;
     }
 
     private function syncReservationPayment(Reservasi $reservasi): void
@@ -151,14 +161,7 @@ class BookingController extends Controller
             ->latest('id')
             ->get();
 
-        MidtransConfig::$serverKey = config('services.midtrans.server_key')
-            ?: env('MIDTRANS_SERVER_KEY');
-        MidtransConfig::$isProduction = filter_var(
-            config('services.midtrans.is_production', env('MIDTRANS_IS_PRODUCTION', false)),
-            FILTER_VALIDATE_BOOLEAN
-        );
-        MidtransConfig::$isSanitized = true;
-        MidtransConfig::$is3ds = true;
+        app(MidtransConfigService::class)->configure();
 
         foreach ($payments as $payment) {
             if (!$payment->midtrans_order_id) {
@@ -237,8 +240,99 @@ class BookingController extends Controller
 
     private function reservationDeadline(Reservasi $reservasi): Carbon
     {
-        return $reservasi->created_at->copy()->addMinutes(
-            $this->reservationPaymentWindowMinutes()
+        return $reservasi->paymentDeadline();
+    }
+
+    private function sendApprovalNotification(
+        Reservasi $reservasi,
+        string $flag,
+        ?string $phone,
+        string $message
+    ): void {
+        $claimed = Reservasi::query()
+            ->whereKey($reservasi->id)
+            ->where($flag, false)
+            ->update([$flag => true]);
+
+        if (!$claimed) {
+            return;
+        }
+
+        if (!app(FonnteService::class)->send($phone, $message)) {
+            Reservasi::whereKey($reservasi->id)->update([$flag => false]);
+            Log::warning('WhatsApp notifikasi approval reservasi gagal.', [
+                'reservasi_id' => $reservasi->id,
+                'flag' => $flag,
+            ]);
+        }
+    }
+
+    private function notifyApprovalPending(Reservasi $reservasi): void
+    {
+        $reservasi->loadMissing(['customer', 'pesanan']);
+        $detailUrl = route('customer.reservasi.detail', [
+            'kode_pesanan' => $reservasi->pesanan->kode_pesanan,
+        ]);
+        $date = Carbon::parse($reservasi->tanggal, 'Asia/Jakarta')->format('d M Y');
+        $schedule = "{$date}, {$reservasi->jam_mulai}–{$reservasi->jam_selesai} WIB";
+
+        $customerMessage = "⏳ *Menunggu Persetujuan*\n\n"
+            . "Halo *{$reservasi->customer->nama}*, permintaan reservasi Anda sedang kami tinjau.\n\n"
+            . "📅 Tgl: *{$date}*\n"
+            . "⏰ Jam: *" . date('H.i', strtotime($reservasi->jam_mulai)) . " - " . date('H.i', strtotime($reservasi->jam_selesai)) . " WIB*\n"
+            . "👥 Jml: *{$reservasi->jml_org} Orang*\n\n"
+            . "_DP belum ditagihkan hingga reservasi disetujui._\n\n"
+            . "Cek status: <{$detailUrl}>";
+
+        $adminMessage = "⚠️ *Persetujuan Diperlukan*\n\n"
+            . "👤 *{$reservasi->customer->nama}* ({$reservasi->customer->nomor_telp})\n"
+            . "📅 *{$date}* | *" . date('H.i', strtotime($reservasi->jam_mulai)) . " WIB*\n"
+            . "👥 *{$reservasi->jml_org} Orang*\n"
+            . "🏷️ Kode: *{$reservasi->pesanan->kode_pesanan}*\n\n"
+            . "Tinjau: <" . route('admin.reservasi', ['id' => $reservasi->id]) . ">";
+
+        $this->sendApprovalNotification(
+            $reservasi,
+            'approval_pending_customer_notif',
+            $reservasi->customer->nomor_telp,
+            $customerMessage
+        );
+        $this->sendApprovalNotification(
+            $reservasi,
+            'approval_pending_admin_notif',
+            config('services.fonnte.phone'), // FIX SECURITY-04: gunakan config()
+            $adminMessage
+        );
+    }
+
+    public function notifyApprovalDecision(Reservasi $reservasi): void
+    {
+        $reservasi->loadMissing(['customer', 'pesanan']);
+        $detailUrl = route('customer.reservasi.detail', [
+            'kode_pesanan' => $reservasi->pesanan->kode_pesanan,
+        ]);
+        $date = Carbon::parse($reservasi->tanggal, 'Asia/Jakarta')->format('d M Y');
+
+        if (strtolower(trim((string) $reservasi->pesanan?->status)) === 'pending') {
+$message = "✅ *Reservasi Disetujui!*\n\n"
+                . "Halo *{$reservasi->customer->nama}*, reservasi Anda telah disetujui.\n\n"
+                . "📅 *{$date}* | *" . date('H.i', strtotime($reservasi->jam_mulai)) . " WIB*\n\n"
+                . "Silakan buka detail reservasi dan tekan *Mulai Pembayaran DP*. Batas waktu pembayaran mulai dihitung setelah pembayaran dimulai.\n\n"
+                . "Detail reservasi: <{$detailUrl}>";
+        } else {
+            $reason = $reservasi->rejection_reason ?: 'Silakan hubungi admin untuk informasi.';
+            $message = "❌ *Reservasi Ditolak*\n\n"
+                . "Halo *{$reservasi->customer->nama}*, mohon maaf reservasi Anda untuk tanggal *{$date}* belum dapat kami setujui.\n\n"
+                . "📝 Alasan: _{$reason}_\n\n"
+                . "Hubungi admin (085168170080) untuk info lebih lanjut.\n"
+                . "Detail: <{$detailUrl}>";
+        }
+
+        $this->sendApprovalNotification(
+            $reservasi,
+            'approval_decision_customer_notif',
+            $reservasi->customer->nomor_telp,
+            $message
         );
     }
 
@@ -311,8 +405,8 @@ class BookingController extends Controller
             $validOrder = strtolower(trim((string) $lockedOrder->status)) === 'pending'
                 && (int) $latestDpId === (int) $lockedPayment->id;
 
-            if (!$paidBeforeDeadline || !$validOrder) {
-                Log::critical('Pembayaran reservasi berhasil setelah reservasi tidak aktif atau melewati deadline.', [
+            if (!$validOrder) {
+                Log::critical('Pembayaran reservasi berhasil, tetapi pesanan sudah tidak berstatus pending.', [
                     'reservasi_id' => $lockedReservation->id,
                     'payment_id' => $lockedPayment->id,
                     'midtrans_order_id' => $lockedPayment->midtrans_order_id,
@@ -320,6 +414,17 @@ class BookingController extends Controller
                 ]);
 
                 return false;
+            }
+
+            if (!$paidBeforeDeadline) {
+                // Midtrans sudah mengonfirmasi pembayaran. Jangan biarkan proses
+                // kedaluwarsa mengubah pesanan yang sudah dibayar menjadi Cancelled.
+                Log::warning('Pembayaran reservasi terkonfirmasi setelah batas waktu lokal.', [
+                    'reservasi_id' => $lockedReservation->id,
+                    'payment_id' => $lockedPayment->id,
+                    'midtrans_order_id' => $lockedPayment->midtrans_order_id,
+                    'transaction_time' => $transactionTime,
+                ]);
             }
 
             $lockedOrder->update(['status' => 'Reserved']);
@@ -330,6 +435,10 @@ class BookingController extends Controller
 
     private function expireUnpaidReservation(Reservasi $reservasi): void
     {
+        if (strtolower(trim((string) $reservasi->pesanan?->status)) === 'waiting') {
+            return;
+        }
+
         if (now()->lt($this->reservationDeadline($reservasi))) {
             return;
         }
@@ -340,14 +449,7 @@ class BookingController extends Controller
             return;
         }
 
-        MidtransConfig::$serverKey = config('services.midtrans.server_key')
-            ?: env('MIDTRANS_SERVER_KEY');
-        MidtransConfig::$isProduction = filter_var(
-            config('services.midtrans.is_production', env('MIDTRANS_IS_PRODUCTION', false)),
-            FILTER_VALIDATE_BOOLEAN
-        );
-        MidtransConfig::$isSanitized = true;
-        MidtransConfig::$is3ds = true;
+        app(MidtransConfigService::class)->configure();
 
         $payments = $order->pembayaran()
             ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
@@ -475,12 +577,7 @@ class BookingController extends Controller
 
     public function expirePendingReservations(): void
     {
-        Reservasi::where(
-            'created_at',
-            '<=',
-            now()->subMinutes($this->reservationPaymentWindowMinutes())
-        )
-        ->whereHas('pesanan', function ($query) {
+        Reservasi::whereHas('pesanan', function ($query) {
                 $query->whereRaw("LOWER(TRIM(status)) = 'pending'");
             })
         ->chunkById(100, function ($reservations) {
@@ -542,7 +639,9 @@ class BookingController extends Controller
             }
         }
 
-        return view('customer.reservasi', compact('menus', 'prefill'));
+        $requiresApproval = (int) ($prefill['jml_org'] ?? 0) > 10;
+
+        return view('customer.reservasi', compact('menus', 'prefill', 'requiresApproval'));
     }
 
     public function reservationMenu()
@@ -556,14 +655,15 @@ class BookingController extends Controller
         return view('customer.reservation_menu', compact('menus', 'categories'));
     }
 
+    public function reservationMenuDetail(int $id)
+    {
+        $menu = Menu::where('is_reservable', true)->findOrFail($id);
+        return view('customer.reservation_menu_detail', compact('menu'));
+    }
+
     // TAHAP 1: FORM KE SESSION DRAFT (BELUM MASUK DB)
     public function reservasiStore(Request $request)
     {
-        // $totalOrangHariIni = Reservasi::whereDate('tanggal', $request->tanggal)->sum('jml_org');
-        // if (($totalOrangHariIni + $request->jml_org) > 88) {
-        //     return back()->withErrors(['Kapasitas restoran untuk tanggal tersebut sudah penuh.']);
-        // }
-
         $minimumReservationDate = Carbon::now('Asia/Jakarta')->addDay()->toDateString();
         $validated = $request->validate([
             'nama'         => 'required|string|min:3|max:50',
@@ -571,7 +671,7 @@ class BookingController extends Controller
             'tanggal' => ['required', 'date_format:Y-m-d', 'after_or_equal:' . $minimumReservationDate],
             'jam_mulai'    => 'required|date_format:H:i',
             'jam_selesai'  => 'required|date_format:H:i|after:jam_mulai',
-            'jml_org'      => 'required|integer|min:1',
+            'jml_org'      => 'required|integer|min:1', // FIX UX-02: batasan maksimum
             'keterangan'   => 'nullable|string|max:200',
             'menu_qty' => ['nullable', 'array'],
             'menu_qty.*' => ['nullable', 'integer', 'min:0', 'max:100'],
@@ -582,40 +682,24 @@ class BookingController extends Controller
         ], ['jam_selesai.after' => 'Jam selesai harus lebih akhir dari jam mulai.']);
 
         if ($validated['jam_mulai'] < '15:00' || $validated['jam_mulai'] > '23:59'
-            || $validated['jam_selesai'] > '23:59') {
+            || $validated['jam_selesai'] < '15:00' || $validated['jam_selesai'] > '23:59') {
             return back()
-                ->withErrors(['jam_mulai' => 'Reservasi hanya dapat dibuat pada jam operasional 15:00–00:00.'])
+                ->withErrors(['jam_mulai' => 'Jam mulai dan selesai harus berada dalam jam operasional 15.00–23.59 WIB.'])
                 ->withInput();
         }
 
-        // $overlappingOrang = Reservasi::whereDate('tanggal', $request->tanggal)
-        //     ->where('jam_mulai', '<', $request->jam_selesai) // Jam mulai baru < Jam selesai existing
-        //     ->where('jam_selesai', '>', $request->jam_mulai) // Jam selesai baru > Jam mulai existing
-        //     ->whereHas('pesanan', function($q) {
-        //         // Jangan hitung reservasi yang sudah dibatalkan
-        //         $q->whereNotIn('status', ['Cancelled']); 
-        //     })
-        //     ->sum('jml_org');
-
-        // if (($overlappingOrang + $request->jml_org) > 88) {
-        //     $sisa = max(0, 88 - $overlappingOrang);
-        //     return back()
-        //         ->withErrors(["Kapasitas restoran pada rentang jam tersebut sudah hampir penuh (Sisa kapasitas: {$sisa} orang)."])
-        //         ->withInput();
-        // }
-
-        $overlappingOrang = $this->reservationCapacityUsed(
-            $validated['tanggal'],
-            $validated['jam_mulai'],
-            $validated['jam_selesai']
+        $capacity = (int) $validated['jml_org'] > 10 ? ['available' => true] : app(ReservationCapacityService::class)->check(
+            $validated['tanggal'], $validated['jam_mulai'], $validated['jam_selesai'], (int) $validated['jml_org']
         );
 
-        if ($overlappingOrang + (int) $validated['jml_org'] > self::RESERVATION_CAPACITY) {
-            $sisa = max(0, self::RESERVATION_CAPACITY - $overlappingOrang);
-
+        if (!$capacity['available']) {
             return back()
                 ->withErrors([
-                    'kapasitas' => "Kapasitas jadwal tersebut tidak mencukupi. Sisa kapasitas: {$sisa} orang.",
+                    // 'kapasitas' => 'Kapasitas tidak mencukupi. Tersedia '
+                    'kapasitas' => 'Kapasitas tidak mencukupi.',
+                    //     . $capacity['available_guests'] . ' kursi dan '
+                    //     . $capacity['available_tables'] . ' meja aktif; reservasi ini memerlukan estimasi '
+                    //     . $capacity['estimated_tables_needed'] . ' meja.',
                 ])
                 ->withInput();
         }
@@ -693,6 +777,12 @@ class BookingController extends Controller
                 ->with('error', 'Silakan isi form reservasi terlebih dahulu.');
         }
 
+        $draftErrors = $this->reservationDraftErrors((array) $draft);
+        if ($draftErrors) {
+            return redirect()->route('customer.reservasi.form')
+                ->withErrors($draftErrors)->withInput((array) $draft);
+        }
+
         // Konversi draft array ke object agar view bisa pakai $draft->nama, $draft->tanggal, dst.
         $draftObj = (object) $draft;
 
@@ -702,15 +792,18 @@ class BookingController extends Controller
         $hasMenuChanges = false;
         $menuChangeMessages = [];
 
-        $overlappingOrang = $this->reservationCapacityUsed(
+        $capacity = (int) $draft['jml_org'] > 10 ? ['available' => true] : app(ReservationCapacityService::class)->check(
             $draft['tanggal'],
             $draft['jam_mulai'],
-            $draft['jam_selesai']
+            $draft['jam_selesai'],
+            (int) $draft['jml_org']
         );
 
-        if ($overlappingOrang + (int) $draft['jml_org'] > self::RESERVATION_CAPACITY) {
-            $menuChangeMessages[] =
-                'Kapasitas jadwal tersebut sudah tidak mencukupi. Silakan pilih jadwal lain.';
+        if (!$capacity['available']) {
+            $menuChangeMessages[] = 'Kapasitas jadwal tidak mencukupi. Silahkan hubungi kami via WhatsApp.';
+            // $menuChangeMessages[] = 'Kapasitas jadwal tidak mencukupi: tersisa '
+                // . $capacity['available_guests'] . ' kursi dan '
+                // . $capacity['available_tables'] . ' meja aktif.';
         }
 
         $quoteReview = app(MenuQuoteService::class)->review(
@@ -752,11 +845,7 @@ class BookingController extends Controller
 
         if ($pendingReservasi) {
             $this->expireUnpaidReservation($pendingReservasi);
-            $pendingReservasi->refresh();
-
-            if (strtolower(trim((string) $pendingReservasi->pesanan?->status)) !== 'pending') {
-                $pendingReservasi = null;
-            }
+            $pendingReservasi = $this->findPendingReservationForPhone($draft['nomor_telp']);
         }
 
         return view('customer.reservasi_payment', compact(
@@ -784,6 +873,16 @@ class BookingController extends Controller
                 ->with('error', 'Data reservasi tidak ditemukan. Silakan ulangi form.');
         }
 
+        $draftErrors = $this->reservationDraftErrors((array) $draft);
+        if ($draftErrors) {
+            Log::notice('Draft reservasi ditolak saat membuat transaksi karena validasi jadwal/data.', [
+                'phone' => $draft['nomor_telp'] ?? null,
+                'errors' => $draftErrors,
+            ]);
+            return redirect()->route('customer.reservasi.form')
+                ->withErrors($draftErrors)->withInput((array) $draft);
+        }
+
         $menuQty = collect($draft['menu_qty'] ?? [])
             ->map(fn ($qty) => (int) $qty)
             ->filter(fn ($qty) => $qty > 0)
@@ -797,6 +896,10 @@ class BookingController extends Controller
         );
 
         if ($quoteReview['changed']) {
+            Log::notice('Checkout reservasi dihentikan karena menu berubah.', [
+                'phone' => $draft['nomor_telp'] ?? null,
+                'messages' => $quoteReview['messages'],
+            ]);
             return redirect()
                 ->route('customer.reservasi.payment')
                 ->with('error', 'Harga atau status menu berubah. Periksa perubahan sebelum melanjutkan.')
@@ -820,39 +923,52 @@ class BookingController extends Controller
         ]);
 
         if ($validator->fails()) {
+            Log::notice('Nominal DP reservasi tidak lolos validasi.', [
+                'phone' => $draft['nomor_telp'] ?? null,
+                'errors' => $validator->errors()->all(),
+            ]);
             return redirect()->route('customer.reservasi.payment')
                 ->withErrors($validator)
                 ->withInput();
         }
 
         $payAmount = (int) $validator->validated()['nominal_dp'];
+        $requiresApproval = (int) ($draft['jml_org'] ?? 0) > 10;
 
         if ($payAmount > $totalHargaMenu) {
             return redirect()->route('customer.reservasi.payment')
                 ->with('error', 'Nominal DP tidak boleh melebihi total harga menu.');
         }
 
-        $customer = Customer::firstOrCreate(
-            ['nomor_telp' => $draft['nomor_telp']],
-            ['nama' => $draft['nama']]
-        );
+        $customer = $this->findCustomerByPhone($draft['nomor_telp']);
+        if (!$customer) {
+            $customer = Customer::create([
+                'nomor_telp' => preg_replace('/\D+/', '', $draft['nomor_telp']),
+                'nama' => $draft['nama'],
+            ]);
+        }
 
         try {
-            [$reservasi, $midtransOrderId] = DB::transaction(
-                function () use ($draft, $customer, $menuQty, $menuSnapshot, $totalHargaMenu, $payAmount) {
+            $reservasi = DB::transaction(
+                function () use ($draft, $customer, $menuQty, $menuSnapshot, $totalHargaMenu, $payAmount, $requiresApproval) {
                     return $this->persistReservation(
                         $draft,
                         (int) $customer->id,
                         $menuQty,
                         $menuSnapshot,
                         $totalHargaMenu,
-                        $payAmount
+                        $payAmount,
+                        $requiresApproval
                     );
                 },
                 3
             );
         } catch (ValidationException $e) {
             $messages = collect($e->errors())->flatten()->all();
+            Log::notice('Reservasi ditolak saat validasi akhir sebelum dibuat.', [
+                'phone' => $draft['nomor_telp'] ?? null,
+                'errors' => $messages,
+            ]);
 
             return redirect()
                 ->route('customer.reservasi.payment')
@@ -868,78 +984,19 @@ class BookingController extends Controller
                 ->with('error', 'Reservasi gagal diproses. Silakan coba kembali.');
         }
 
-        $payment = Pembayaran::where('midtrans_order_id', $midtransOrderId)
-            ->firstOrFail();
+        // Nomor telepon menjadi identitas customer; simpan nama terbaru dari reservasi ini.
+        $customer->update(['nama' => trim((string) $draft['nama'])]);
 
-        try {
-            MidtransConfig::$serverKey = config('services.midtrans.server_key')
-                ?: env('MIDTRANS_SERVER_KEY');
-
-            $production = config('services.midtrans.is_production')
-                ?? env('MIDTRANS_IS_PRODUCTION', false);
-
-            MidtransConfig::$isProduction = filter_var($production, FILTER_VALIDATE_BOOLEAN);
-            MidtransConfig::$isSanitized = true;
-            MidtransConfig::$is3ds = true;
-
-            $returnUrl = route('customer.reservasi.detail', [
-                'kode_pesanan' => $reservasi->pesanan->kode_pesanan,
-            ]);
-
-            $snapToken = Snap::getSnapToken([
-                'transaction_details' => [
-                    'order_id' => $midtransOrderId,
-                    'gross_amount' => $payAmount,
-                ],
-                'item_details' => [[
-                    'id' => 'dp-' . $reservasi->id,
-                    'price' => $payAmount,
-                    'quantity' => 1,
-                    'name' => 'DP Reservasi',
-                ]],
-                'customer_details' => [
-                    'first_name' => $customer->nama,
-                    'phone' => $customer->nomor_telp,
-                ],
-                // 'enabled_payments' => ['gopay', 'shopeepay', 'other_qris', 'bank_transfer'],
-                'enabled_payments' => ['other_qris', 'gopay', 'shopeepay', 'bca_va'],
-                'custom_expiry' => $this->reservationMidtransExpiry($reservasi),
-                'callbacks' => [
-                    'finish' => $returnUrl,
-                    'unfinish' => $returnUrl,
-                    'error' => $returnUrl,
-                ],
-            ]);
-
-            $payment->forceFill(['snap_token' => $snapToken])->save();
-
-            if (!$payment->fresh()?->snap_token) {
-                throw new \RuntimeException('Snap token tidak tersimpan ke database.');
-            }
-
-            // session()->forget('reservation_draft');
-
-            return redirect()
-                ->route('customer.reservasi.detail', ['kode_pesanan' => $reservasi->pesanan->kode_pesanan])
-                ->with('open_midtrans', true);
-        } catch (\Throwable $e) {
-            $payment->forceFill([
-                'status' => 'Failed',
-                'snap_token' => null,
-            ])->save();
-
-            Log::error('Gagal membuat transaksi Snap reservasi.', [
-                'reservasi_id' => $reservasi->id,
-                'payment_id' => $payment->id,
-                'midtrans_order_id' => $midtransOrderId,
-                'error' => $e->getMessage(),
-                'exception' => get_class($e),
-            ]);
-
-            return redirect()
-                ->route('customer.reservasi.detail', ['kode_pesanan' => $reservasi->pesanan->kode_pesanan])
-                ->with('error', 'Tagihan gagal dibuat. Silakan tekan Ulangi Pembayaran.');
+        if ($requiresApproval) {
+            $this->notifyApprovalPending($reservasi->fresh(['customer', 'pesanan']));
+            $successMessage = 'Permintaan reservasi skala besar dikirim untuk persetujuan admin. DP belum ditagihkan.';
+        } else {
+            $successMessage = 'Reservasi berhasil dibuat. Batas waktu pembayaran sudah dimulai; tekan Mulai Pembayaran DP untuk membuka Midtrans.';
         }
+
+        return redirect()
+            ->route('customer.reservasi.detail', ['kode_pesanan' => $reservasi->pesanan->kode_pesanan])
+            ->with('success', $successMessage);
     }
 
     private function persistReservation(
@@ -948,30 +1005,43 @@ class BookingController extends Controller
         array $menuQty,
         array $menuSnapshot,
         int $totalHargaMenu,
-        int $payAmount
-    ): array {
-        // Mengunci mutex kapasitas yang sama untuk seluruh proses booking.
-        Meja::query()->orderBy('id')->lockForUpdate()->firstOrFail();
+        int $payAmount,
+        bool $requiresApproval = false
+    ): Reservasi {
+        // Lock meja dalam urutan konsisten agar booking dan perubahan status meja terserialisasi.
+        $lockedTables = Meja::query()
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get(['id', 'is_active']);
+
+        if ($lockedTables->where('is_active', true)->isEmpty()) {
+            throw ValidationException::withMessages([
+                'kapasitas' => 'Belum ada meja aktif untuk reservasi.',
+            ]);
+        }
 
         // Serialisasi pembuatan reservasi untuk nomor telepon yang sama.
         Customer::whereKey($customerId)->lockForUpdate()->firstOrFail();
 
         $pendingReservation = Reservasi::query()
             ->where('id_customer', $customerId)
-            ->where(
-                'created_at',
-                '>=',
-                now()->subMinutes($this->reservationPaymentWindowMinutes())
-            )
             ->whereHas('pesanan', function ($query) {
-                $query->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                $query->whereRaw("LOWER(TRIM(status)) = 'waiting'")
+                    ->orWhere(function ($pending) {
+                        $pending->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                            ->where('pesanan.created_at', '>=', now()->subMinutes($this->reservationPaymentWindowMinutes()))
+                            ->whereHas('pembayaran', function ($payment) {
+                                $payment->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
+                                    ->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                            });
+                    });
             })
             ->lockForUpdate()
             ->first();
 
         if ($pendingReservation) {
             throw ValidationException::withMessages([
-                'reservasi' => 'Nomor telepon ini masih memiliki reservasi yang menunggu pembayaran.',
+                'reservasi' => 'Nomor telepon ini masih memiliki reservasi yang menunggu persetujuan atau pembayaran. Lanjutkan atau batalkan reservasi lama terlebih dahulu.',
             ]);
         }
 
@@ -1016,15 +1086,19 @@ class BookingController extends Controller
             ]);
         }
 
-        $usedCapacity = $this->reservationCapacityUsed(
+        $capacity = (int) $draft['jml_org'] > 10 ? ['available' => true] : app(ReservationCapacityService::class)->check(
             $draft['tanggal'],
             $draft['jam_mulai'],
-            $draft['jam_selesai']
+            $draft['jam_selesai'],
+            (int) $draft['jml_org']
         );
 
-        if ($usedCapacity + (int) $draft['jml_org'] > self::RESERVATION_CAPACITY) {
+        if (!$capacity['available']) {
             throw ValidationException::withMessages([
-                'kapasitas' => 'Kapasitas jadwal ini sudah penuh. Silakan pilih waktu lain.',
+                'kapasitas' => 'Kapasitas jadwal berubah. Silahkan pilih jadwal lain. ',
+                // 'kapasitas' => 'Kapasitas jadwal berubah. Tersedia '
+                //     . $capacity['available_guests'] . ' kursi dan '
+                //     . $capacity['available_tables'] . ' meja aktif. Silakan pilih jadwal lain.',
             ]);
         }
 
@@ -1033,7 +1107,7 @@ class BookingController extends Controller
             'id_user' => null,
             'id_meja' => null,
             'total_harga' => $verifiedTotal,
-            'status' => 'Pending',
+            'status' => $requiresApproval ? 'Waiting' : 'Pending',
         ]);
 
         $reservasi = Reservasi::create([
@@ -1058,18 +1132,19 @@ class BookingController extends Controller
             ]);
         }
 
-        $midtransOrderId = 'RESERV-' . $reservasi->id . '-' . Str::random(8);
-
+        // Simpan tagihan DP saat reservasi dibuat. Midtrans baru dibuat saat customer
+        // menekan tombol mulai pembayaran, setelah reservasi besar disetujui.
         Pembayaran::create([
             'id_pesanan' => $pesanan->id,
             'jenis' => 'DP',
             'metode' => 'midtrans',
             'nominal' => $payAmount,
-            'midtrans_order_id' => $midtransOrderId,
+            'midtrans_order_id' => null,
+            'snap_token' => null,
             'status' => 'Pending',
         ]);
 
-        return [$reservasi, $midtransOrderId];
+        return $reservasi;
     }
 
     // Halaman Tujuan Setelah Pelanggan Menutup Pop-up Midtrans
@@ -1097,13 +1172,11 @@ class BookingController extends Controller
         })->firstOrFail();
 
         $this->syncReservationPayment($reservasi);
-        $this->expireUnpaidReservation($reservasi);
+        // $this->expireUnpaidReservation($reservasi);
 
         $reservasi->refresh()->load(['pesanan.pembayaran']);
 
-        // Waktu ini selalu dari reservasi dibuat, bukan dari pembayaran/retry.
         $reservationExpiresAt = $this->reservationDeadline($reservasi)->timestamp * 1000;
-        $withinPaymentWindow = Carbon::now('UTC')->lt($this->reservationDeadline($reservasi));
 
         $pesanan = $reservasi->pesanan;
 
@@ -1134,11 +1207,15 @@ class BookingController extends Controller
         $totalHarga = (float) ($pesanan?->total_harga ?? 0);
         $dpBayar = (float) ($pesanan?->pembayaran()
             ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->whereRaw("LOWER(TRIM(status)) = 'success'")
+            ->whereRaw("LOWER(TRIM(status)) = 'pending'") // FIX BUG-01: hitung DP sukses, bukan pending
             ->sum('nominal') ?? 0);
         $sisaTagihan = max(0, $totalHarga - $dpBayar);
 
-        $bisaUbahMenu = $statusPesanan === 'pending' && $withinPaymentWindow;
+        $paymentNotStarted = !$paymentDp
+            || (!$paymentDp->midtrans_order_id && !$paymentDp->snap_token
+                && strtolower(trim((string) $paymentDp->status)) === 'pending');
+        $bisaUbahMenu = in_array($statusPesanan, ['pending', 'waiting'], true)
+            && $paymentNotStarted;
         $nominalDp = (int) ($pesanan?->pembayaran()
             ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
             ->latest('id')
@@ -1148,12 +1225,11 @@ class BookingController extends Controller
                     ->orderByDesc('is_bestseller')
                     ->get();
 
-        $paymentDp = $pesanan?->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->latest('id')
-            ->first();
+        // FIX BUG-02: hapus query duplikat — $paymentDp sudah di-query di atas
+        // Query lama yang dibuang: $paymentDp = $pesanan?->pembayaran()->whereRaw(...)->first();
 
         $paymentStatus = strtolower(trim((string) ($paymentDp?->status ?? '')));
+        $withinPaymentWindow = $paymentDp && now()->lt($this->reservationDeadline($reservasi));
         $snapToken = $statusPembayaranDp === 'pending'
             ? $paymentDp?->snap_token
             : null;
@@ -1161,6 +1237,11 @@ class BookingController extends Controller
         $canRetryPayment = $statusPesanan === 'pending'
             && $statusPembayaranDp === 'failed'
             && $withinPaymentWindow;
+        $canStartPayment = $statusPesanan === 'pending'
+            && (!$paymentDp || (
+                strtolower(trim((string) $paymentDp->status)) === 'pending'
+                && !$paymentDp->snap_token
+            ));
 
         $returnUrl = route('customer.reservasi.detail', ['kode_pesanan' => $pesanan->kode_pesanan]);
 
@@ -1175,9 +1256,11 @@ class BookingController extends Controller
             'totalHarga',
             'nominalDp',
             'canRetryPayment',
+            'canStartPayment',
             'reservationExpiresAt',
             'statusPesanan',
             'statusPembayaranDp',
+            'paymentDp',
             'reservationFinished',
             'reservationUrl',
             'reservationSteps',
@@ -1187,20 +1270,19 @@ class BookingController extends Controller
 
     public function reservasiUpdateMenu(Request $request, $id)
     {
-        $initialReservation = Reservasi::with('pesanan')->findOrFail($id);
+        $initialReservation = Reservasi::with(['customer', 'pesanan'])->findOrFail($id);
 
         $this->syncReservationPayment($initialReservation);
-        $this->expireUnpaidReservation($initialReservation);
         $initialReservation->refresh()->load('pesanan');
 
-        return DB::transaction(function () use ($id, $request) {
-            $validated = $request->validate([
+        $validated = $request->validate([
                 'menu_qty' => ['nullable', 'array'],
                 'menu_qty.*' => ['nullable', 'integer', 'min:0', 'max:100'],
                 'menu_notes' => ['nullable', 'array'],
                 'menu_notes.*' => ['nullable', 'string', 'max:200'],
             ]);
 
+        $result = DB::transaction(function () use ($id, $validated) {
             $reservasi = Reservasi::whereKey($id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -1211,7 +1293,7 @@ class BookingController extends Controller
 
             if (
                 now()->greaterThanOrEqualTo($this->reservationDeadline($reservasi))
-                || strtolower(trim((string) $pesanan->status)) !== 'pending'
+                || !in_array(strtolower(trim((string) $pesanan->status)), ['pending', 'waiting'], true)
             ) {
                 if (strtolower(trim((string) $pesanan->status)) === 'pending') {
                     $pesanan->update(['status' => 'Cancelled']);
@@ -1220,9 +1302,7 @@ class BookingController extends Controller
                         ->update(['status' => 'Failed']);
                 }
 
-                return redirect()
-                    ->route('customer.reservasi.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
-                    ->with('error', 'Waktu mengubah menu atau reservasi telah berakhir.');
+                return ['error' => 'Waktu mengubah menu atau reservasi telah berakhir.', 'kode' => $pesanan->kode_pesanan];
             }
 
             $dpPayment = $pesanan->pembayaran()
@@ -1232,14 +1312,23 @@ class BookingController extends Controller
                 ->lockForUpdate()
                 ->first();
 
-            if (!$dpPayment || !in_array(strtolower(trim((string) $dpPayment->status)), ['pending', 'failed'], true)) {
-                return back()->with('error', 'Pembayaran DP tidak dapat diedit; muat ulang halaman untuk melihat status terbaru.');
+            if ($dpPayment && (
+                strtolower(trim((string) $dpPayment->status)) !== 'pending'
+                || $dpPayment->midtrans_order_id
+                || $dpPayment->snap_token
+            )) {
+                return ['error' => 'Pembayaran DP tidak dapat diedit; muat ulang halaman untuk melihat status terbaru.', 'kode' => $pesanan->kode_pesanan];
             }
 
             $activeMenuQty = collect($validated['menu_qty'] ?? [])
                 ->map(fn ($qty) => (int) $qty)
                 ->filter(fn ($qty) => $qty > 0)
                 ->all();
+
+            // FIX UX-04: tolak form jika tidak ada menu yang dipilih
+            if (empty($activeMenuQty)) {
+                return ['validation_error' => 'Pilih minimal satu menu untuk reservasi.', 'kode' => $pesanan->kode_pesanan];
+            }
 
             $menuIds = array_map('intval', array_keys($activeMenuQty));
             $menus = Menu::whereIn('id', $menuIds)
@@ -1248,7 +1337,7 @@ class BookingController extends Controller
                 ->keyBy('id');
 
             if ($menus->count() !== count($menuIds)) {
-                return back()->withErrors(['menu' => 'Ada menu reservasi yang tidak valid.'])->withInput();
+                return ['validation_error' => 'Ada menu reservasi yang tidak valid.', 'kode' => $pesanan->kode_pesanan];
             }
 
             $totalHarga = 0;
@@ -1257,15 +1346,11 @@ class BookingController extends Controller
                 $totalHarga += (int) round((float) $menus->get($menuId)->harga) * $qty;
             }
 
-            $minimumTotal = max(50000, (int) $dpPayment->nominal);
+            $minimumTotal = max(50000, (int) ($dpPayment?->nominal ?? 50000));
 
             if ($totalHarga < $minimumTotal) {
-                return back()
-                    ->withErrors([
-                        'menu' => 'Total menu tidak boleh kurang dari DP sebesar Rp '
-                            . number_format($minimumTotal, 0, ',', '.') . '.',
-                    ])
-                    ->withInput();
+                return ['validation_error' => 'Total menu tidak boleh kurang dari DP sebesar Rp '
+                    . number_format($minimumTotal, 0, ',', '.') . '.', 'kode' => $pesanan->kode_pesanan];
             }
 
             DetailPesanan::where('id_pesanan', $pesanan->id)->delete();
@@ -1284,10 +1369,18 @@ class BookingController extends Controller
 
             $pesanan->update(['total_harga' => $totalHarga]);
 
-            return redirect()
-                ->route('customer.reservasi.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
-                ->with('success', 'Menu pre-order berhasil disesuaikan.');
+            return ['success' => true, 'kode' => $pesanan->kode_pesanan];
         });
+
+        $detailRoute = route('customer.reservasi.detail', ['kode_pesanan' => $result['kode']]);
+        if (isset($result['validation_error'])) {
+            return redirect()->back()->withErrors(['menu' => $result['validation_error']])->withInput();
+        }
+        if (isset($result['error'])) {
+            return redirect()->to($detailRoute)->with('error', $result['error']);
+        }
+
+        return redirect()->to($detailRoute)->with('success', 'Menu pre-order berhasil disesuaikan.');
     }
 
     public function cancelPendingReservation(Request $request, int $id)
@@ -1303,7 +1396,8 @@ class BookingController extends Controller
 
         if (
             !$reservasi->customer
-            || (string) $reservasi->customer->nomor_telp !== (string) $draft['nomor_telp']
+            || preg_replace('/\D+/', '', (string) $reservasi->customer->nomor_telp)
+                !== preg_replace('/\D+/', '', (string) $draft['nomor_telp'])
         ) {
             abort(403);
         }
@@ -1311,21 +1405,13 @@ class BookingController extends Controller
         $this->expireUnpaidReservation($reservasi);
         $reservasi->refresh()->load('pesanan.pembayaran');
 
-        if (strtolower(trim((string) $reservasi->pesanan?->status)) !== 'pending') {
+        if (!in_array(strtolower(trim((string) $reservasi->pesanan?->status)), ['pending', 'waiting'], true)) {
             return redirect()->route('customer.reservasi.payment')
-                ->with('error', 'Reservasi tersebut tidak lagi berstatus menunggu pembayaran.');
+                ->with('error', 'Reservasi tersebut tidak lagi berstatus menunggu persetujuan atau pembayaran.');
         }
 
         try {
-            MidtransConfig::$serverKey = config('services.midtrans.server_key')
-                ?: env('MIDTRANS_SERVER_KEY');
-
-            $production = config('services.midtrans.is_production')
-                ?? env('MIDTRANS_IS_PRODUCTION', false);
-
-            MidtransConfig::$isProduction = filter_var($production, FILTER_VALIDATE_BOOLEAN);
-            MidtransConfig::$isSanitized = true;
-            MidtransConfig::$is3ds = true;
+            app(MidtransConfigService::class)->configure();
 
             foreach ($reservasi->pesanan->pembayaran as $payment) {
                 if (
@@ -1425,7 +1511,7 @@ class BookingController extends Controller
                 ->whereRaw("LOWER(TRIM(status)) = 'success'")
                 ->exists();
 
-            if ($hasSuccessfulDp || strtolower(trim((string) $order->status)) !== 'pending') {
+            if ($hasSuccessfulDp || !in_array(strtolower(trim((string) $order->status)), ['pending', 'waiting'], true)) {
                 return;
             }
 
@@ -1436,166 +1522,95 @@ class BookingController extends Controller
         }, 3);
 
         return redirect()->route('customer.reservasi.payment')
-            ->with('success', 'Reservasi lama berhasil dibatalkan. Anda dapat melanjutkan reservasi baru.');
+            ->with('success', 'Reservasi sebelumnya berhasil dibatalkan. Anda dapat melanjutkan reservasi baru.');
     }
 
     public function retryReservationPayment(int $id)
     {
-        $reservasi = Reservasi::with(['customer', 'pesanan.pembayaran'])
-            ->findOrFail($id);
-
-        $draft = session('reservation_draft');
-
-        if (
-            !$draft
-            || empty($draft['nomor_telp'])
-            || !$reservasi->customer
-            || (string) $reservasi->customer->nomor_telp !== (string) $draft['nomor_telp']
-        ) {
-            abort(403);
-        }
-
-        $this->syncReservationPayment($reservasi);
-        $reservasi->refresh()->load(['customer', 'pesanan.pembayaran']);
-
-        if (now()->greaterThanOrEqualTo($this->reservationDeadline($reservasi))) {
-            $this->expireUnpaidReservation($reservasi);
-
-            return redirect()->route('customer.reservasi.detail', [
-                'kode_pesanan' => $reservasi->pesanan?->kode_pesanan,
-            ])
-                ->with('error', 'Waktu pembayaran reservasi telah habis.');
-        }
-
+        $reservasi = Reservasi::with(['customer', 'pesanan.pembayaran'])->findOrFail($id);
         $order = $reservasi->pesanan;
-
         if (!$order || strtolower(trim((string) $order->status)) !== 'pending') {
-            return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
+            return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order?->kode_pesanan])
                 ->with('error', 'Reservasi tidak lagi menunggu pembayaran.');
         }
 
-        $oldPayment = $order->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->latest('id')
-            ->first();
-
-        if (!$oldPayment || strtolower(trim((string) $oldPayment->status)) !== 'failed') {
+        $oldPayment = $order->pembayaran()->whereRaw("LOWER(TRIM(jenis)) = 'dp'")->latest('id')->first();
+        if (now()->greaterThanOrEqualTo($this->reservationDeadline($reservasi))) {
+            $this->expireUnpaidReservation($reservasi);
             return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
-                ->with('error', 'Pembayaran sebelumnya belum dinyatakan gagal atau expired oleh Midtrans.');
+                ->with('error', 'Waktu pembayaran reservasi telah habis.');
+        }
+        $paymentStatus = strtolower(trim((string) ($oldPayment?->status ?? '')));
+        $paymentIsUnstarted = $oldPayment
+            && $paymentStatus === 'pending'
+            && !$oldPayment->midtrans_order_id
+            && !$oldPayment->snap_token;
+        if ($oldPayment && !$paymentIsUnstarted && $paymentStatus !== 'failed') {
+            return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
+                ->with('error', 'Pembayaran sudah dimulai atau belum dapat diulangi. Muat ulang halaman.');
         }
 
         $newOrderId = 'RESERV-' . $reservasi->id . '-' . Str::random(8);
         $newPayment = null;
-
         try {
-            $newPayment = DB::transaction(function () use (
-                $reservasi,
-                $order,
-                $oldPayment,
-                $newOrderId
-            ) {
-                $lockedReservation = Reservasi::whereKey($reservasi->id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-                $lockedOrder = Pesanan::whereKey($order->id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-                $lockedOldPayment = Pembayaran::whereKey($oldPayment->id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-
-                if (now()->greaterThanOrEqualTo($this->reservationDeadline($lockedReservation))) {
-                    throw ValidationException::withMessages([
-                        'payment' => 'Waktu pembayaran reservasi telah habis.',
+            $newPayment = DB::transaction(function () use ($reservasi, $order, $oldPayment, $newOrderId) {
+                $lockedReservation = Reservasi::whereKey($reservasi->id)->lockForUpdate()->firstOrFail();
+                $lockedOrder = Pesanan::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                if (strtolower(trim((string) $lockedOrder->status)) !== 'pending') {
+                    throw ValidationException::withMessages(['payment' => 'Status reservasi berubah. Muat ulang halaman.']);
+                }
+                $latest = $lockedOrder->pembayaran()->whereRaw("LOWER(TRIM(jenis)) = 'dp'")->latest('id')->first();
+                if ($oldPayment && (!$latest || (int) $latest->id !== (int) $oldPayment->id)) {
+                    throw ValidationException::withMessages(['payment' => 'Pembayaran berubah. Muat ulang halaman.']);
+                }
+                $latestStatus = strtolower(trim((string) ($latest?->status ?? '')));
+                $stillUnstarted = $latest
+                    && $latestStatus === 'pending'
+                    && !$latest->midtrans_order_id
+                    && !$latest->snap_token;
+                if (($latest && !$stillUnstarted && $latestStatus !== 'failed')
+                    || now()->greaterThanOrEqualTo($this->reservationDeadline($lockedReservation))) {
+                    throw ValidationException::withMessages(['payment' => 'Status pembayaran berubah atau batas waktu telah habis.']);
+                }
+                $amount = (int) ($latest?->nominal ?? min(50000, (int) $lockedOrder->total_harga));
+                if ($amount < 50000 || $amount > (int) $lockedOrder->total_harga) {
+                    throw ValidationException::withMessages(['payment' => 'Nominal DP tidak valid. Hubungi admin untuk memperbarui reservasi.']);
+                }
+                if (!$latest) {
+                    $latest = new Pembayaran([
+                        'id_pesanan' => $lockedOrder->id,
+                        'jenis' => 'DP',
+                        'metode' => 'midtrans',
+                        'nominal' => $amount,
+                        'status' => 'Pending',
                     ]);
                 }
-
-                if (
-                    strtolower(trim((string) $lockedOrder->status)) !== 'pending'
-                    || strtolower(trim((string) $lockedOldPayment->status)) !== 'failed'
-                ) {
-                    throw ValidationException::withMessages([
-                        'payment' => 'Status pembayaran berubah. Muat ulang halaman.',
-                    ]);
-                }
-
-                $latestId = Pembayaran::where('id_pesanan', $lockedOrder->id)
-                    ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                    ->latest('id')
-                    ->value('id');
-
-                if ((int) $latestId !== (int) $lockedOldPayment->id) {
-                    throw ValidationException::withMessages([
-                        'payment' => 'Pembayaran sudah diperbarui. Muat ulang halaman.',
-                    ]);
-                }
-
-                return Pembayaran::create([
-                    'id_pesanan' => $lockedOrder->id,
-                    'jenis' => 'DP',
-                    'metode' => 'midtrans',
-                    'nominal' => (int) $lockedOldPayment->nominal,
+                $latest->forceFill([
                     'midtrans_order_id' => $newOrderId,
+                    'snap_token' => null,
                     'status' => 'Pending',
-                ]);
+                ])->save();
+                return $latest;
             }, 3);
 
-            MidtransConfig::$serverKey = config('services.midtrans.server_key')
-                ?: env('MIDTRANS_SERVER_KEY');
-            MidtransConfig::$isProduction = filter_var(
-                config('services.midtrans.is_production', env('MIDTRANS_IS_PRODUCTION', false)),
-                FILTER_VALIDATE_BOOLEAN
-            );
-            MidtransConfig::$isSanitized = true;
-            MidtransConfig::$is3ds = true;
-
+            app(MidtransConfigService::class)->configure();
             $returnUrl = route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan]);
             $amount = (int) $newPayment->nominal;
-
             $snapToken = Snap::getSnapToken([
-                'transaction_details' => [
-                    'order_id' => $newOrderId,
-                    'gross_amount' => $amount,
-                ],
-                'item_details' => [[
-                    'id' => 'dp-' . $reservasi->id,
-                    'price' => $amount,
-                    'quantity' => 1,
-                    'name' => 'DP Reservasi',
-                ]],
-                'customer_details' => [
-                    'first_name' => $reservasi->customer->nama,
-                    'phone' => $reservasi->customer->nomor_telp,
-                ],
+                'transaction_details' => ['order_id' => $newOrderId, 'gross_amount' => $amount],
+                'item_details' => [['id' => 'dp-' . $reservasi->id, 'price' => $amount, 'quantity' => 1, 'name' => 'DP Reservasi']],
+                'customer_details' => ['first_name' => $reservasi->customer->nama, 'phone' => $reservasi->customer->nomor_telp],
                 'enabled_payments' => ['other_qris', 'gopay', 'shopeepay', 'bca_va'],
                 'custom_expiry' => $this->reservationMidtransExpiry($reservasi),
-                'callbacks' => [
-                    'finish' => $returnUrl,
-                    'unfinish' => $returnUrl,
-                    'error' => $returnUrl,
-                ],
+                'callbacks' => ['finish' => $returnUrl, 'unfinish' => $returnUrl, 'error' => $returnUrl],
             ]);
-
             $newPayment->forceFill(['snap_token' => $snapToken])->save();
-
-            return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
-                ->with('open_midtrans', true);
+            return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])->with('open_midtrans', true);
         } catch (\Throwable $e) {
-            if ($newPayment) {
-                $newPayment->forceFill([
-                    'status' => 'Failed',
-                    'snap_token' => null,
-                ])->save();
-            }
-
-            Log::error('Gagal membuat pembayaran ulang reservasi.', [
-                'reservasi_id' => $id,
-                'payment_id' => $newPayment?->id,
-                'error' => $e->getMessage(),
-            ]);
-
+            if ($newPayment) $newPayment->forceFill(['status' => 'Failed', 'snap_token' => null])->save();
+            Log::error('Gagal membuat pembayaran reservasi.', ['reservasi_id' => $id, 'payment_id' => $newPayment?->id, 'error' => $e->getMessage()]);
             return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
-                ->with('error', 'Pembayaran baru gagal dibuat. Silakan muat ulang halaman dan coba kembali.');
+                ->with('error', 'Pembayaran gagal dibuat. Silakan muat ulang halaman dan coba kembali.');
         }
     }
     

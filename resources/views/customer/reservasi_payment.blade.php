@@ -6,16 +6,23 @@
 {{-- Gunakan min-h-screen dan biarkan overflow alami agar saat inspect/layar pendek bisa di-scroll --}}
 <div class="pt-24 pb-12 min-h-screen max-w-6xl mx-auto px-4 flex flex-col justify-between box-border">
     <x-alert type="confirm-action" />
-    {{-- @if(session('menu_change_messages'))
-        <ul role="alert" class="mb-4 list-disc rounded-xl border-2 border-red-500 bg-red-100 p-4 pl-9 font-bold text-red-900">
-            @foreach(session('menu_change_messages') as $message)
-                <li>{{ $message }}</li>
-            @endforeach
-        </ul>
-    @endif --}}
-    @if(session('error'))
-        <div role="alert" class="my-3 rounded-xl border-2 border-red-500 bg-red-100 p-3 font-bold text-red-900">
-            {{ session('error') }}
+    @php
+        $paymentErrorMessages = collect(session('menu_change_messages', []))
+            ->merge($errors->all())->filter()->unique()->values();
+    @endphp
+    @if(session('error') || $paymentErrorMessages->isNotEmpty() || $hasMenuChanges)
+        <div role="alert" class="my-3 rounded-xl border-2 border-red-500 bg-red-50 p-4 text-red-900">
+            <p class="font-black">{{ session('error', 'Ada data reservasi yang perlu diperiksa sebelum melanjutkan.') }}</p>
+            @if($paymentErrorMessages->isNotEmpty() || $hasMenuChanges)
+                <ul class="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold">
+                    @foreach($paymentErrorMessages->merge($menuChangeMessages ?? [])->unique() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            @endif
+            @if($hasMenuChanges)
+                <a href="{{ route('customer.reservasi.form') }}" class="mt-3 inline-flex rounded-lg bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800">Periksa kembali data dan menu</a>
+            @endif
         </div>
     @endif
 
@@ -24,40 +31,39 @@
             {{ session('success') }}
         </div>
     @endif
-    <div class="my-4 rounded-xl border-2 border-amber-500 bg-amber-50 p-4 text-sm text-amber-950">
-        <h3 class="font-black">Sebelum melanjutkan, pastikan:</h3>
-        <ul class="mt-2 list-disc space-y-1 pl-5">
-            <li>Menu pre-order dan jumlahnya sudah benar.</li>
-            <li>Nominal DP yang dimasukkan sudah sesuai. DP minimal Rp 50.000 dan tidak melebihi total menu.</li>
-            <li>Metode pembayaran yang dipilih pada popup Midtrans sudah benar.</li>
-        </ul>
-    </div>
+
+    @if($pendingReservasi)
+        <div class="mb-6 rounded-xl border-2 border-amber-500 bg-amber-50 p-4 md:p-5">
+            <h3 class="font-black text-amber-900">Masih ada reservasi aktif untuk nomor ini</h3>
+            <p class="mt-2 text-sm text-stone-700">
+                Reservasi #{{ $pendingReservasi->pesanan?->kode_pesanan }}
+                masih menunggu {{ strtolower((string) $pendingReservasi->pesanan?->status) === 'waiting' ? 'persetujuan admin' : 'pembayaran DP' }}. Lanjutkan reservasi tersebut atau batalkan dahulu jika ingin membuat reservasi baru.
+            </p>
+
+            <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <a href="{{ route('customer.reservasi.detail', ['kode_pesanan' => $pendingReservasi->pesanan?->kode_pesanan]) }}"
+                    class="rounded-lg border-2 border-stone-900 bg-white px-4 py-3 text-center font-black hover:bg-stone-100">
+                    Lanjutkan reservasi lama
+                </a>
+
+                <form id="cancel-pending-reservation-form" method="POST"
+                    action="{{ route('customer.reservasi.cancel_pending', ['id' => $pendingReservasi->id]) }}">
+                    @csrf
+                    <button type="button"
+                        onclick="window.dispatchEvent(new CustomEvent('component-confirm', { detail: { message: 'Reservasi lama dan tagihan pending-nya akan dibatalkan. Lanjutkan membuat reservasi baru?', formId: 'cancel-pending-reservation-form' } }))"
+                        class="w-full rounded-lg border-2 border-stone-900 bg-red-600 px-4 py-3 font-black text-white hover:bg-red-700">
+                        Batalkan & lanjutkan reservasi baru
+                    </button>
+                </form>
+            </div>
+        </div>
+    @endif
+
     <!-- GRID CONTAINER -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-1">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch flex-1">
         
         <!-- KOLOM KIRI: RINGKASAN RESERVASI & PEMBAYARAN (7 Kolom) -->
-        <div class="lg:col-span-7 lg:h-[720px] lg:overflow-y-auto bg-white rounded-2xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)] p-5 md:p-6 flex flex-col justify-between">
-
-            @if($hasMenuChanges)
-                <div role="alert" class="my-4 rounded-xl border-2 border-red-500 bg-red-100 p-4 font-bold text-red-900">
-                    <p class="mb-2">⚠️ Harga atau ketersediaan menu berubah:</p>
-                    <ul class="ml-5 list-disc">
-                        @foreach($menuChangeMessages as $msg)
-                            <li>{{ $msg }}</li>
-                        @endforeach
-                    </ul>
-                    <p class="mt-3 text-sm font-medium">
-                        Periksa harga terbaru. Tombol pembayaran aktif kembali setelah Anda kembali ke form dan mengirim pilihan menu dengan harga terbaru.
-                    </p>
-                    <a href="{{ route('customer.reservasi.form') }}"
-                    class="mt-3 inline-block rounded-lg bg-red-700 px-4 py-2 text-white">
-                        Periksa dan pilih menu kembali
-                    </a>
-                </div>
-            @endif
-
-            
-            
+        <div class="lg:col-span-7 lg:min-h-[720px] bg-white rounded-2xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)] p-5 md:p-6 flex flex-col justify-between">
             <div class="space-y-4">
                 <div class="border-b-2 border-stone-200 pb-2">
                     <h2 class="text-lg font-black text-stone-900 flex items-center gap-2">
@@ -70,8 +76,12 @@
                 <div class="space-y-2 text-xs lg:text-sm">
                     <div class="flex justify-between items-center py-1 border-b border-stone-100">
                         <span class="text-stone-500 font-medium">Nama Pemesan</span>
-                        {{-- <p class="text-stone-500 font-medium"><strong>Nama:</strong> {{ $draftObj['nama'] }}</p> --}}
                         <span class="font-black text-stone-900">{{ $draftObj->nama ?? 'Guest' }}</span>
+                    </div>
+
+                    <div class="flex justify-between items-center py-1 border-b border-stone-100">
+                        <span class="text-stone-500 font-medium">Nomor Telepon</span>
+                        <span class="font-black text-stone-900">{{ $draftObj->nomor_telp ?? '-' }}</span>
                     </div>
                     
                     <div class="flex justify-between items-center py-1 border-b border-stone-100">
@@ -99,71 +109,50 @@
                             👥 {{ $draftObj->jml_org }} Orang
                         </span>
                     </div>
+                    
+                    <span class="py-3 justify-between font-medium text-stone-500 block mb-1">Keterangan Reservasi</span>
+                    <div class="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                        
+                        <p class="text-sm text-stone-800 break-words whitespace-pre-line leading-relaxed">{{ trim($draftObj->keterangan ?? '') ?: 'Tidak ada keterangan tambahan.' }}</p>
+                    </div>
                 </div>
+
+                @if((int) ($draftObj->jml_org ?? 0) > 10)
+                    <div class="rounded-lg border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-950">
+                        Reservasi lebih dari 10 orang perlu persetujuan admin. Masukkan nominal DP di bawah; pembayaran baru dimulai setelah reservasi disetujui.
+                    </div>
+                @endif
 
                 <!-- Card DP Info (Kompak) -->
                 <div class="bg-amber-50 border-2 border-stone-900 rounded-xl p-3.5 text-center shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
                     <p class="text-[11px] font-black text-stone-600 uppercase tracking-wider mb-0.5">
-                        Uang Muka (DP) Wajib Minimal
+                        @if((int) ($draftObj->jml_org ?? 0) > 10)
+                            Uang Muka Setelah Persetujuan Admin
+                        @else
+                            Uang Muka (DP) Wajib Minimal
+                        @endif
                     </p>
                     <p class="text-2xl lg:text-3xl font-black text-[#4A2311]">
                         Rp {{ number_format(50000, 0, ',', '.') }}
                     </p>
                     <p class="text-[11px] text-stone-500 mt-1">
-                        *Sisa tagihan menu dibayarkan langsung di kasir restoran.
+                        @if((int) ($draftObj->jml_org ?? 0) > 10)
+                            *Pembayaran DP dimulai setelah reservasi disetujui.
+                        @else
+                            *Sisa tagihan menu dibayarkan langsung di kasir restoran.
+                        @endif
                     </p>
                 </div>
                 
             </div>
 
             <!-- Form Tombol Bayar -->
-            {{-- Ubah menjadi POST karena akan memproses pembuatan token transaksi --}}
-            @if($pendingReservasi)
-                <div class="mt-6 rounded-xl border-2 border-amber-500 bg-amber-50 p-4">
-                    <h3 class="font-black text-amber-900">Masih ada reservasi menunggu pembayaran</h3>
-                    <p class="mt-2 text-sm text-stone-700">
-                        Reservasi #{{ $pendingReservasi->pesanan?->kode_pesanan }}
-                        masih aktif. Batalkan reservasi lama jika ingin membuat reservasi baru,
-                        atau buka detailnya untuk melanjutkan pembayaran.
-                    </p>
-
-                    <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <a
-                            href="{{ route('customer.reservasi.detail', ['kode_pesanan' => $pendingReservasi->pesanan?->kode_pesanan]) }}"
-                            class="rounded-lg border-2 border-stone-900 bg-white px-4 py-3 text-center font-black hover:bg-stone-100"
-                        >
-                            Lanjutkan reservasi lama
-                        </a>
-
-                        <form
-                            id="cancel-pending-reservation-form"
-                            method="POST"
-                            action="{{ route('customer.reservasi.cancel_pending', ['id' => $pendingReservasi->id]) }}"
-                        >
-                            @csrf
-                            <button
-                                type="button"
-                                onclick="window.dispatchEvent(new CustomEvent('component-confirm', {
-                                    detail: {
-                                        message: 'Reservasi lama dan tagihan pending-nya akan dibatalkan. Lanjutkan membuat reservasi baru?',
-                                        formId: 'cancel-pending-reservation-form'
-                                    }
-                                }))"
-                                class="w-full rounded-lg border-2 border-stone-900 bg-red-600 px-4 py-3 font-black text-white hover:bg-red-700"
-                            >
-                                Batalkan & lanjutkan reservasi baru
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            @else
+            @if(!$pendingReservasi)
                 <form action="{{ route('customer.reservasi.create_transaction') }}" method="POST" class="space-y-4 mt-6">
                     @csrf
-                    {{-- <input type="hidden" name="id_reservasi" value="{{ $draftObj->id }}"> --}}
                     
                     {{-- Input Nominal Fleksibel --}}
                     <div class="bg-stone-50 p-4 rounded-xl border-2 border-stone-200">
-                        {{-- <label class="block text-xs font-bold text-stone-700 mb-2">Nominal Pembayaran (Min. Rp 50.000)</label> --}}
                         <label for="nominal_dp" class="block text-xs font-bold text-stone-700 mb-2">
                             Nominal DP (minimal Rp 50.000)
                         </label>
@@ -181,38 +170,47 @@
                                 required
                             >
                         </div>
-                        @error('nominal_dp')
-                            <p class="mt-2 text-xs font-bold text-red-600">{{ $message }}</p>
-                        @enderror
-
                         <p class="text-[10px] text-stone-500 mt-1.5">
                             DP minimal Rp50.000. Anda dapat membayar lebih hingga sebesar total menu.
                         </p>
                     </div>
 
-                    {{-- <button type="submit"
-                        class="w-full py-3 bg-[#4A2311] text-white font-black text-sm lg:text-base rounded-xl border-2 border-stone-900 shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-[#5c2d17] active:shadow-none active:translate-x-0.5 active:translate-y-0.5 transition-all uppercase tracking-wider flex items-center justify-center gap-2">
-                        💳 Bayar Sekarang via Midtrans
-                    </button> --}}
+                    {{-- Checklist Catatan Sebelum Melanjutkan --}}
+                    <div class="rounded-xl border border-amber-400 bg-amber-50 p-3 text-xs text-amber-950">
+                        <span class="font-bold block mb-1">📌 Sebelum melanjutkan, pastikan:</span>
+                        <ul class="list-disc space-y-0.5 pl-4 text-stone-700">
+                            <li>Menu pre-order dan jumlahnya sudah benar.</li>
+                            @if((int) ($draftObj->jml_org ?? 0) > 10)
+                                <li>Nominal DP dicatat sekarang, pembayaran dimulai setelah disetujui admin.</li>
+                            @else
+                                <li>DP minimal Rp 50.000 dan tidak melebihi total pesanan.</li>
+                            @endif
+                            <li>Sisa pelunasan dibayar langsung di kasir restoran saat tiba.</li>
+                        </ul>
+                    </div>
 
                     <button
                         type="submit"
-                        class="w-full py-3 bg-[#4A2311] text-white font-black rounded-xl disabled:cursor-not-allowed disabled:bg-stone-500 disabled:opacity-50"
+                        class="w-full py-3.5 bg-[#4A2311] text-white font-black rounded-xl border-2 border-stone-900 shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B] transition-all disabled:cursor-not-allowed disabled:bg-stone-500 disabled:opacity-50"
                         @disabled($hasMenuChanges)
                     >
-                        💳 Bayar Sekarang via Midtrans
+                        @if((int) ($draftObj->jml_org ?? 0) > 10)
+                            Kirim permintaan reservasi
+                        @else
+                            💳 Bayar Sekarang via Midtrans
+                        @endif
                     </button>
                 </form>
             @endif
         </div>
 
         <!-- KOLOM KANAN: DETAIL PESANAN MENU (5 Kolom) -->
-        <div class="lg:col-span-5 lg:h-[720px] bg-white rounded-2xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)] p-5 md:p-6 flex min-h-0 flex-col">
+        <div class="lg:col-span-5 lg:min-h-[720px] bg-white rounded-2xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)] p-5 md:p-6 flex min-h-0 flex-col">
             
             <div class="flex min-h-0 flex-1 flex-col">
                 <div class="border-b-2 border-stone-200 pb-2 mb-3">
                     <h3 class="text-base font-black text-stone-900 flex items-center gap-2">
-                        🍽️ Menu Yang Dipesan
+                        Rincian Menu Yang Dipesan
                     </h3>
                 </div>
 
@@ -230,7 +228,6 @@
                             </div>
                             <div class="flex-1 min-w-0">
                                 <h4 class="font-bold text-stone-900 text-xs truncate">{{ $menu->nama ?? 'Menu' }}</h4>
-                                {{-- <p class="text-[11px] text-stone-500">{{ $item->jumlah }}x @ Rp {{ number_format($menu->harga, 0, ',', '.') }}</p> --}}
                                 <p class="text-[11px] text-stone-500">
                                     {{ $item->jumlah }}x @ Rp {{ number_format($item->menu->harga, 0, ',', '.') }}
                                 </p>
@@ -250,19 +247,11 @@
 
             <!-- RINGKASAN SUB TOTAL -->
             <div class="pt-3 border-t-2 border-dashed border-stone-300 space-y-1 text-xs mt-4">
-                {{-- <div class="flex justify-between text-stone-600">
-                    <span>Total Harga Menu</span>
-                    <span class="font-bold">Rp {{ number_format($totalHargaMenu ?? 0, 0, ',', '.') }}</span>
-                </div>
-                <div class="flex justify-between text-stone-600">
-                    <span>PB1 (10%)</span>
-                    <span class="font-bold">Rp {{ number_format($pb ?? 0, 0, ',', '.') }}</span>
-                </div> --}}
                 <div class="flex justify-between text-stone-900 font-black text-sm pt-1.5 border-t border-stone-200">
                     <span>Total Estimasi</span>
                     <span class="text-[#4A2311]">Rp {{ number_format($totalHargaMenu ?? 0, 0, ',', '.') }}</span>
                 </div>
-                <div class="text-right text-m text-gray-350">
+                <div class="text-right text-xs text-stone-400 italic">
                     <em>Harga sudah termasuk pajak</em>
                 </div>
             </div>
@@ -271,30 +260,18 @@
     </div>
 </div>
 
-
-{{-- <script>
-const returnUrl = @json($returnUrl);
-
-snap.pay(@json($snapToken), {
-    onSuccess: () => window.location.assign(returnUrl),
-    onPending: () => window.location.assign(returnUrl),
-    onError: () => window.location.assign(returnUrl),
-    onClose: () => window.location.assign(returnUrl),
-});
-</script> --}}
-
 @include('partials.floating_cs_wa')
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.querySelector('form[action="{{ route('customer.reservasi.create_transaction') }}"]');
     const btnSubmit = form ? form.querySelector('button[type="submit"]') : null;
+    const requiresApproval = @json((int) ($draftObj->jml_org ?? 0) > 10);
     
     if(form && btnSubmit) {
         form.addEventListener('submit', function() {
             // Langsung matikan tombol saat diklik pertama kali
             btnSubmit.disabled = true;
-            btnSubmit.innerHTML = '⏳ Menyiapkan Pembayaran...';
-            btnSubmit.classList.add('opacity-75', 'cursor-not-allowed');
+            btnSubmit.innerHTML = requiresApproval ? 'Mengirim permintaan...' : '⏳ Menyiapkan Pembayaran...';
         });
     }
 });

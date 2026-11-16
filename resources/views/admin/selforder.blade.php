@@ -3,7 +3,7 @@
 @section('title', 'Kelola Self Order - SIPB')
 
 @section('content')
-<div x-data="selfOrderApp()" class="relative flex h-[calc(100vh-6rem)] gap-4 xl:gap-6">
+<div x-data="selfOrderApp()" class="relative flex h-[calc(100vh-6rem)] gap-4 xl:gap-4">
     
     <!-- OVERLAY MOBILE -->
     <div
@@ -21,11 +21,11 @@
             : '-translate-x-full xl:translate-x-0 xl:shadow-none'"
         class="
             selforder-sidebar fixed inset-y-0 left-0 z-50
-            h-full w-[85vw] max-w-[320px] flex-shrink-0
+            h-full w-[88vw] max-w-[380px] flex-shrink-0
             transition-transform duration-300 ease-in-out
             xl:static xl:inset-auto xl:z-auto
-            xl:h-full xl:w-80 xl:min-w-80 xl:max-w-none
-            xl:basis-80 xl:flex-none
+            xl:h-full xl:w-[17rem] xl:min-w-0 xl:max-w-none
+            xl:basis-[17rem] xl:flex-none
             xl:translate-x-0 xl:transform-none xl:shadow-none
         "
     >

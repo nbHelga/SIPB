@@ -13,6 +13,7 @@ return new class extends Migration
             $table->string('nomor_meja', 10)->unique();
             $table->string('lantai', 2);
             $table->enum('status', ['available', 'occupied', 'reserved'])->default('available');
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
     }

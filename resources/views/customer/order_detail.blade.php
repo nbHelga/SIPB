@@ -35,6 +35,10 @@
          ========================================================================= --}}
     @if($st === 'pending')
         <div class="w-full rounded-2xl border-4 {{ $statusPembayaran === 'failed' ? 'border-red-600 bg-red-50' : 'border-amber-500 bg-amber-50' }} p-6 md:p-8 md:px-12 shadow-[8px_8px_0_0_rgba(0,0,0,1)] flex flex-col items-center text-center transition-all">
+            @if($orderExpiresAt)
+                <div id="order-countdown" data-expires-at="{{ $orderExpiresAt }}" class="mb-4 rounded-lg border-2 border-amber-600 bg-amber-200 px-4 py-2 text-base font-black tracking-wider text-amber-900" aria-label="Sisa waktu pembayaran">--:--</div>
+                <p id="order-expired-message" class="hidden text-sm font-bold text-red-700" role="status">Waktu pembayaran habis. Halaman sedang diperbarui.</p>
+            @endif
             
             <div class="flex items-center justify-center gap-3 font-black">
                 @if($statusPembayaran === 'failed')
@@ -142,7 +146,7 @@
     @endif
 
     <div class="flex flex-col items-center justify-center gap-2 text-center sm:flex-row">
-        <span class="text-xs text-stone-500">Muat ulang halaman untuk melihat status pesanan terbaru.</span>
+        <span class="text-xs text-stone-500">Status pesanan diperiksa otomatis. Anda juga dapat memuat ulang secara manual.</span>
         <button type="button" onclick="window.location.reload()" class="shrink-0 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-bold text-stone-700 transition hover:bg-stone-100">
             Refresh status
         </button>
@@ -199,4 +203,67 @@
     </div>
     
 </div>
+
+@if($st === 'pending')
+    <script>
+        (() => {
+            const initialStatus = @json($st);
+            const statusUrl = @json(route('customer.order.status', $pesanan->kode_pesanan));
+            const countdown = document.getElementById('order-countdown');
+            let expiryHandled = false;
+
+            const expireAndReload = async () => {
+                if (expiryHandled) return;
+                expiryHandled = true;
+                document.querySelectorAll('button, form, a').forEach((element) => {
+                    if (element.closest('#order-countdown')) return;
+                    if (element.tagName === 'A') element.setAttribute('aria-disabled', 'true');
+                    else element.disabled = true;
+                });
+                document.getElementById('order-expired-message')?.classList.remove('hidden');
+                try {
+                    await fetch(statusUrl, { headers: { Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store' });
+                } catch (_) {}
+                window.location.reload();
+            };
+
+            if (countdown) {
+                const expiresAt = Number(countdown.dataset.expiresAt);
+                const updateCountdown = () => {
+                    const remaining = expiresAt - Date.now();
+                    if (remaining <= 0) {
+                        countdown.textContent = '00:00';
+                        countdown.classList.add('border-red-600', 'bg-red-100', 'text-red-800');
+                        expireAndReload();
+                        return;
+                    }
+                    const seconds = Math.floor(remaining / 1000);
+                    countdown.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+                };
+                updateCountdown();
+                window.setInterval(updateCountdown, 1000);
+            }
+
+            window.setInterval(async () => {
+                if (expiryHandled) return;
+                try {
+                    const response = await fetch(statusUrl, {
+                        headers: { Accept: 'application/json' },
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                    });
+                    if (!response.ok) return;
+
+                    const data = await response.json();
+                    if (data.status !== initialStatus) {
+                        expiryHandled = true;
+                        window.location.reload();
+                    }
+                } catch (_) {
+                    // Keep polling; a temporary network error should not stop status updates.
+                }
+            }, 20000);
+        })();
+    </script>
+@endif
 @endsection

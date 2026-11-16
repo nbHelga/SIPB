@@ -3,13 +3,13 @@
 namespace App\Http\Controllers\customer;
 
 use App\Http\Controllers\Controller;
-use Midtrans\Config as MidtransConfig;
 use Midtrans\Notification;
 use App\Models\Pesanan;
 use App\Models\Pembayaran;
 use App\Models\Reservasi;
 use App\Services\FonnteService;
 use App\Services\MidtransPaymentMethod;
+use App\Services\MidtransConfigService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -22,17 +22,7 @@ class PaymentController extends Controller
 {    
     public function midtransNotification(Request $request)
     {
-        MidtransConfig::$serverKey = config('services.midtrans.server_key')
-            ?: env('MIDTRANS_SERVER_KEY');
-
-        $production = config('services.midtrans.is_production');
-        if ($production === null) {
-            $production = env('MIDTRANS_IS_PRODUCTION', false);
-        }
-
-        MidtransConfig::$isProduction = filter_var($production, FILTER_VALIDATE_BOOLEAN);
-        MidtransConfig::$isSanitized = true;
-        MidtransConfig::$is3ds = true;
+        app(MidtransConfigService::class)->configure();
 
         try {
             // Memvalidasi notifikasi Midtrans.
@@ -145,48 +135,54 @@ class PaymentController extends Controller
                         'metode' => $paymentMethod ?? $lockedPayment->metode,
                     ])->save();
 
-                    $deadline = $reservasi
-                        ? $reservasi->created_at->copy()->addMinutes(
-                            max(
-                                1,
-                                (int) config(
-                                    'services.reservation.payment_window_minutes',
-                                    60
-                                )
-                            )
-                        )
-                        : null;
-
-                    // $transactionTime = $midtransTransactionTime
-                    //     ? Carbon::parse($midtransTransactionTime)
-                    //     : null;
-
-                    // // Callback boleh terlambat: transaksi yang benar-benar berhasil
-                    // // sebelum deadline tetap diterima.
-                    // $paidBeforeDeadline = !$reservasi
-                    //     || ($transactionTime
-                    //         ? $transactionTime->lte($deadline)
-                    //         : now()->lt($deadline));
-
                     $orderCancelled =
                         strtolower(trim((string) $pesanan->status)) === 'cancelled';
 
-                    // Deadline aplikasi menjadi acuan. Callback sukses yang diterima
-                    // sebelum deadline tidak boleh tertahan karena parsing waktu Midtrans.
-                    $deadlinePassed = $reservasi
-                        && now()->greaterThanOrEqualTo($deadline);
+                    // Jika pesanan sudah terlanjur dibatalkan (misal: akibat race condition dengan cron job
+                    // auto-expire yang berjalan beberapa detik sebelum settlement Midtrans tiba):
+                    if ($orderCancelled) {
+                        $canRestore = false;
 
-                    if ($orderCancelled || $deadlinePassed) {
-                        if ($reservasi && !$orderCancelled) {
-                            $pesanan->forceFill(['status' => 'Cancelled'])->save();
-
-                            $pesanan->pembayaran()
-                                ->whereRaw("LOWER(TRIM(status)) = 'pending'")
-                                ->update(['status' => 'Failed']);
+                        // Cek apakah kuota meja masih mencukupi untuk memulihkan pesanan yang sempat dibatalkan
+                        if ($reservasi && (int) $reservasi->jml_org > 10) {
+                            $canRestore = true;
+                        } elseif ($reservasi) {
+                            $capacity = app(\App\Services\ReservationCapacityService::class)->check(
+                                $reservasi->tanggal,
+                                $reservasi->jam_mulai,
+                                $reservasi->jam_selesai,
+                                (int) $reservasi->jml_org
+                            );
+                            $canRestore = (bool) ($capacity['available'] ?? false);
                         }
 
+                        if ($canRestore) {
+                            $pesanan->forceFill(['status' => $jenis === 'dp' ? 'Reserved' : 'Paid'])->save();
+
+                            Log::warning(
+                                'Pembayaran Midtrans berhasil untuk reservasi yang sempat dibatalkan. Berhasil dipulihkan menjadi Reserved karena kuota masih ada.',
+                                [
+                                    'payment_id' => $lockedPayment->id,
+                                    'midtrans_order_id' => $lockedPayment->midtrans_order_id,
+                                    'pesanan_id' => $pesanan->id,
+                                    'transaction_time' => $midtransTransactionTime,
+                                ]
+                            );
+
+                            if ($reservasi && $jenis === 'dp') {
+                                $reservasiToNotify = Reservasi::with([
+                                    'customer',
+                                    'pesanan.pembayaran',
+                                    'detailReservasi.meja',
+                                ])->find($reservasi->id);
+                            }
+
+                            return;
+                        }
+
+                        // Jika kuota sudah benar-benar penuh/diambil orang lain:
                         Log::critical(
-                            'Pembayaran Midtrans berhasil setelah reservasi dibatalkan atau melewati deadline.',
+                            'Pembayaran Midtrans berhasil setelah reservasi dibatalkan dan kuota tidak mencukupi untuk pemulihan. Perlu refund manual oleh admin.',
                             [
                                 'payment_id' => $lockedPayment->id,
                                 'midtrans_order_id' => $lockedPayment->midtrans_order_id,
@@ -198,8 +194,10 @@ class PaymentController extends Controller
                         return;
                     }
 
-                    // Jangan menolak pembayaran sukses hanya karena ada retry
-                    // yang membuat baris DP lebih baru.
+                    // KASUS NORMAL / RESMI:
+                    // Jika Midtrans sudah mengonfirmasi settlement dan pesanan belum dibatalkan (status Pending/Waiting),
+                    // pembayaran SAH dan pesanan langsung diubah menjadi Reserved / Paid.
+                    // JANGAN PERNAH membatalkan pesanan jika Midtrans sudah menyatakan uang sukses masuk!
                     $pesanan->forceFill([
                         'status' => $jenis === 'dp' ? 'Reserved' : 'Paid',
                     ])->save();
@@ -220,16 +218,12 @@ class PaymentController extends Controller
                     'metode' => $paymentMethod ?? $lockedPayment->metode,
                 ])->save();
 
-                // Pesanan tetap pending sebelum deadline satu jam.
+                // Pesanan tetap pending sebelum deadline habis.
                 // Setelah deadline, batalkan pesanan dan semua tagihan pending.
                 if (
                     $reservasi
                     && strtolower(trim((string) $pesanan->status)) === 'pending'
-                    && now()->greaterThanOrEqualTo(
-                        $reservasi->created_at->copy()->addMinutes(
-                            max(1, (int) config('services.reservation.payment_window_minutes', 60))
-                        )
-                    )
+                    && now()->greaterThanOrEqualTo($reservasi->paymentDeadline())
                 ) {
                     $hasSuccessfulDp = $pesanan->pembayaran()
                         ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
@@ -269,14 +263,6 @@ class PaymentController extends Controller
                     $date = Carbon::parse($reservasiToNotify->tanggal, 'Asia/Jakarta')
                         ->format('d M Y');
 
-                    // $customerMessage = "RESERVASI BIGBANG EATERY BERHASIL\n"
-                    //     . "Halo {$customer->nama}, pembayaran DP Anda berhasil.\n\n"
-                    //     . "Tanggal: {$date}\n"
-                    //     . "Jam: {$reservasiToNotify->jam_mulai}–{$reservasiToNotify->jam_selesai} WIB\n"
-                    //     . "Tamu: {$reservasiToNotify->jml_org} orang\n"
-                    //     . "DP: Rp " . number_format($dpAmount, 0, ',', '.') . " ({$method})\n"
-                    //     . "Sisa pembayaran dilakukan di restoran.\n\n"
-                    //     . "Detail reservasi: {$detailUrl}";
                     $customerMessage = "✅ *Reservasi Dikonfirmasi!*\n\n"
                         . "Halo *{$customer->nama}*, pembayaran DP kamu berhasil diterima.\n\n"
                         . "📅 Tgl: *{$date}*\n"
@@ -289,13 +275,6 @@ class PaymentController extends Controller
                     $detailMeja = $reservasiToNotify->detailReservasi->first();
                     $tableNumber = $detailMeja?->meja?->nomor_meja ?? '-';
 
-                    // $adminMessage = "DP RESERVASI BERHASIL\n"
-                    //     . "Pelanggan: {$customer->nama} ({$customer->nomor_telp})\n"
-                    //     . "Jadwal: {$date}, {$reservasiToNotify->jam_mulai}–{$reservasiToNotify->jam_selesai} WIB\n"
-                    //     . "Tamu: {$reservasiToNotify->jml_org} orang\n"
-                    //     . "DP: Rp " . number_format($dpAmount, 0, ',', '.') . " ({$method})\n"
-                    //     . "Meja: {$tableNumber}\n"
-                    //     . "Kelola reservasi: " . route('admin.dashboard');
                     $adminMessage = "🔔 *Reservasi Baru (DP Lunas)*\n\n"
                         . "👤 *{$customer->nama}* ({$customer->nomor_telp})\n"
                         . "📅 *{$date}* | *" . date('H.i', strtotime($reservasiToNotify->jam_mulai)) . " WIB*\n"
@@ -331,7 +310,7 @@ class PaymentController extends Controller
                         })
                         ->update(['admin_notif' => true]);
 
-                    if ($adminClaimed && !$fonnte->send(env('FONNTE_PHONE'), $adminMessage)) {
+                    if ($adminClaimed && !$fonnte->send(config('services.fonnte.phone'), $adminMessage)) { // FIX SECURITY-04
                         Reservasi::whereKey($reservasiToNotify->id)
                             ->update(['admin_notif' => false]);
 
@@ -364,14 +343,7 @@ class PaymentController extends Controller
             return back()->with('error', 'Pesanan tidak lagi menunggu pembayaran.');
         }
 
-        MidtransConfig::$serverKey = config('services.midtrans.server_key')
-            ?: env('MIDTRANS_SERVER_KEY');
-        MidtransConfig::$isProduction = filter_var(
-            config('services.midtrans.is_production', env('MIDTRANS_IS_PRODUCTION', false)),
-            FILTER_VALIDATE_BOOLEAN
-        );
-        MidtransConfig::$isSanitized = true;
-        MidtransConfig::$is3ds = true;
+        app(MidtransConfigService::class)->configure();
 
         foreach (
             $pesanan->pembayaran()
@@ -515,8 +487,9 @@ class PaymentController extends Controller
                 ->with('success', 'Reservasi berhasil dibatalkan.');
         }
 
+        // FIX UX-03: redirect ke selforder tanpa 'kode' — kode_pesanan format SOD-... tidak valid
+        // untuk parameter 'kode' di selfOrder(). Biarkan sesi bersih dan kode baru digenerate.
         return redirect()->route('customer.selforder', [
-            'kode' => $pesanan->kode_pesanan,
             'tableNumber' => $pesanan->meja->nomor_meja ?? '',
         ])->with('success', 'Pesanan berhasil dibatalkan.');
     }
@@ -623,14 +596,7 @@ class PaymentController extends Controller
                 ]);
             }, 3);
 
-            MidtransConfig::$serverKey = config('services.midtrans.server_key')
-                ?: env('MIDTRANS_SERVER_KEY');
-            MidtransConfig::$isProduction = filter_var(
-                config('services.midtrans.is_production', env('MIDTRANS_IS_PRODUCTION', false)),
-                FILTER_VALIDATE_BOOLEAN
-            );
-            MidtransConfig::$isSanitized = true;
-            MidtransConfig::$is3ds = true;
+            app(MidtransConfigService::class)->configure();
 
             $returnUrl = route('customer.order.detail', [
                 'kode_pesanan' => $pesanan->kode_pesanan,

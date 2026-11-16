@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             // ReservasiSeeder::class,
             // DetailReservasiSeeder::class,
             TransactionSeeder::class,
+            RekapanTestSeeder::class,
         ]);
     }
 }

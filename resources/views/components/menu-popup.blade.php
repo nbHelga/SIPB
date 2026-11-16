@@ -193,7 +193,16 @@ function calculateModalTotal(containerId, displayId, btnId, warningId) {
     const meetsMinimum = total >= minimumTotal;
 
     if (warning) {
-        warning.classList.toggle('hidden', meetsMinimum);
+        if (meetsMinimum) {
+            warning.classList.add('hidden');
+        } else if (total > 0) {
+            const kurang = minimumTotal - total;
+            warning.innerHTML = `⚠️ Total saat ini <strong>Rp ${total.toLocaleString('id-ID')}</strong>. Kurang <strong>Rp ${kurang.toLocaleString('id-ID')}</strong> lagi untuk mencapai batas minimal (Rp ${minimumTotal.toLocaleString('id-ID')}).`;
+            warning.classList.remove('hidden');
+        } else {
+            warning.innerHTML = `ℹ️ Minimal total pemesanan menu adalah <strong>Rp ${minimumTotal.toLocaleString('id-ID')}</strong>.`;
+            warning.classList.remove('hidden');
+        }
     }
 
     if (button) {

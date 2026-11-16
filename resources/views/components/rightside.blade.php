@@ -35,6 +35,7 @@
                         <span class="text-stone-500">STATUS</span>
                         <span class="font-bold px-2 py-0.5 rounded-full text-xs capitalize
                             {{ strtolower($item->status) === 'paid' ? 'bg-green-100 text-green-700' : '' }}
+                            {{ strtolower($item->status) === 'waiting' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : '' }}
                             {{ strtolower($item->status) === 'processing' ? 'bg-yellow-100 text-yellow-700' : '' }}
                             {{ strtolower($item->status) === 'completed' ? 'bg-blue-100 text-blue-700' : '' }}
                             {{ strtolower($item->status) === 'cancelled' ? 'bg-red-100 text-red-700' : '' }}">
@@ -117,7 +118,8 @@
                             {{-- {{ strtolower(optional($item->pesanan)->status) === 'processing' ? 'bg-yellow-100 text-yellow-700' : '' }} --}}
                             {{ strtolower(optional($item->pesanan)->status) === 'completed' ? 'bg-blue-200 text-blue-700' : '' }}
                             {{ strtolower(optional($item->pesanan)->status) === 'cancelled' ? 'bg-red-100 text-red-700' : '' }}
-                            {{ strtolower(optional($item->pesanan)->status) === 'reserved' ? 'bg-green-100 text-green-700' : '' }}">
+                            {{ strtolower(optional($item->pesanan)->status) === 'reserved' ? 'bg-green-100 text-green-700' : '' }}
+                            {{ strtolower(optional($item->pesanan)->status) === 'waiting' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : '' }}">
                             {{ optional($item->pesanan)->status ?? '-' }}
                         </span>
                     </div>
@@ -161,10 +163,38 @@
                 @if(!empty($item->keterangan))
                     <div class="mt-4 bg-amber-50 border-l-4 border-amber-600 p-3 text-sm rounded">
                         <span class="block font-bold text-amber-800 mb-1">📋 Catatan Acara:</span>
-                        <p class="text-amber-900 italic">"{{ $item->keterangan }}"</p>
+                        <p class="text-amber-900 italic break-words whitespace-pre-line">"{{ trim($item->keterangan) }}"</p>
                     </div>
                 @endif
             </div>
+
+            {{-- RINCIAN PEMBAYARAN RESERVASI (DP & SISA PELUNASAN) --}}
+            @if(optional($item->pesanan)->total_harga > 0 || ($item->dp_bayar ?? 0) > 0)
+                <div class="bg-white rounded-lg border-2 border-stone-300 shadow-[3px_3px_0_0_rgba(0,0,0,0.15)] p-4">
+                    <h3 class="font-bold text-lg mb-3 text-stone-800 border-b-2 border-[#4A2311] pb-2">Status Pembayaran</h3>
+                    @php
+                        $totalBiaya = $item->pesanan->total_harga ?? 0;
+                        $dpBayar = $item->dp_bayar ?? 0;
+                        $sisaPelunasan = max(0, $totalBiaya - $dpBayar);
+                    @endphp
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-stone-500">Total Tagihan Menu</span>
+                            <span class="font-bold">Rp {{ number_format($totalBiaya, 0, ',', '.') }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-stone-500">DP Terbayar</span>
+                            <span class="font-bold text-emerald-700">Rp {{ number_format($dpBayar, 0, ',', '.') }}</span>
+                        </div>
+                        <div class="flex justify-between font-bold text-base border-t border-stone-200 pt-2">
+                            <span class="text-stone-800">Sisa Pelunasan di Resto</span>
+                            <span class="{{ $sisaPelunasan > 0 ? 'text-[#4A2311]' : 'text-emerald-700' }}">
+                                {{ $sisaPelunasan > 0 ? 'Rp ' . number_format($sisaPelunasan, 0, ',', '.') : 'Lunas' }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            @endif
 
             {{-- PRE-ORDER MENU RESERVASI --}}
             @if(optional($item->pesanan)->detailPesanan && $item->pesanan->detailPesanan->count() > 0)

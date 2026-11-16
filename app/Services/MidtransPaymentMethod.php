@@ -7,7 +7,6 @@ use App\Models\Pembayaran;
 use App\Models\Pesanan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Midtrans\Config as MidtransConfig;
 use Midtrans\Transaction;
 
 class MidtransPaymentMethod
@@ -63,14 +62,7 @@ class MidtransPaymentMethod
             return;
         }
 
-        MidtransConfig::$serverKey = config('services.midtrans.server_key')
-            ?: env('MIDTRANS_SERVER_KEY');
-        MidtransConfig::$isProduction = filter_var(
-            config('services.midtrans.is_production', env('MIDTRANS_IS_PRODUCTION', false)),
-            FILTER_VALIDATE_BOOLEAN
-        );
-        MidtransConfig::$isSanitized = true;
-        MidtransConfig::$is3ds = true;
+        app(MidtransConfigService::class)->configure();
 
         try {
             $remote = Transaction::status($payment->midtrans_order_id);

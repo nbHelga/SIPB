@@ -8,12 +8,12 @@ use App\Models\Pesanan;
 use App\Models\DetailPesanan;
 use App\Models\Meja;
 use App\Services\MidtransPaymentMethod;
+use App\Services\MidtransConfigService;
 use App\Services\PendingSelfOrderExpiryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Session;
 use Midtrans\Snap;
-use Midtrans\Config as MidtransConfig;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Contracts\Encryption\DecryptException;
 use App\Models\Pembayaran;
@@ -59,7 +59,9 @@ class SelfOrderController extends Controller
             ?? $request->query('nomor_meja')
             ?? session('nomor_meja');
 
-        $tables = Meja::where('nomor_meja', $nomorMeja)->first();
+        $tables = Meja::where('nomor_meja', $nomorMeja)
+            ->where('is_active', true)
+            ->first();
 
         if (!$tables) {
             return redirect()->route('home')->with('error', 'Meja tidak ditemukan.');
@@ -118,6 +120,7 @@ class SelfOrderController extends Controller
             ->orderBy('kategori')
             ->pluck('kategori');
 
+        // 7. Status buka / tutup resto & jam operasional
         $businessTime = now('Asia/Jakarta');
         $businessMinuteOfDay = ((int) $businessTime->format('G') * 60)
             + (int) $businessTime->format('i');
@@ -130,6 +133,7 @@ class SelfOrderController extends Controller
                 ? true
                 : $isWithinBusinessHours;
         $businessTimezoneLabel = 'WIB';
+
         $pendingOrders = Pesanan::query()
             ->where('id_meja', $tables->id)
             ->whereRaw("LOWER(TRIM(status)) = 'pending'")
@@ -137,13 +141,50 @@ class SelfOrderController extends Controller
             ->orderByDesc('created_at')
             ->get(['id', 'kode_pesanan', 'total_harga', 'created_at']);
 
+        // 8. Susun section menu: Bestseller dulu, lalu per-kategori
+        $menuCollection = collect($menus);
+
+        $menuSections = collect();
+
+        $bestsellers = $menuCollection
+            ->filter(fn ($menu) => (bool) $menu->is_bestseller)
+            ->sortBy(fn ($menu) => mb_strtolower($menu->nama ?? ''), SORT_NATURAL)
+            ->values();
+
+        if ($bestsellers->isNotEmpty()) {
+            $menuSections->push([
+                'key'   => '__bestseller__',
+                'title' => '⭐ Bestseller',
+                'menus' => $bestsellers,
+            ]);
+        }
+
+        $categoryGroups = $menuCollection
+            ->groupBy(fn ($menu) => mb_strtolower(trim($menu->kategori ?: 'Lainnya')))
+            ->sortKeys(SORT_NATURAL | SORT_FLAG_CASE);
+
+        foreach ($categoryGroups as $categoryKey => $categoryMenus) {
+            $menuSections->push([
+                'key'   => $categoryKey,
+                'title' => $categoryMenus->first()->kategori ?: 'Lainnya',
+                'menus' => $categoryMenus->sortBy(
+                    fn ($menu) => mb_strtolower($menu->nama ?? ''),
+                    SORT_NATURAL
+                )->values(),
+            ]);
+        }
+
+        $nomorMeja = $tables->nomor_meja;
+
         return view('customer.selforder', compact(
             'menus',
             'categories',
             'tables',
+            'nomorMeja',
             'isRestaurantOpen',
             'businessTimezoneLabel',
-            'pendingOrders'
+            'pendingOrders',
+            'menuSections'
         ));
     }
 
@@ -168,7 +209,9 @@ class SelfOrderController extends Controller
             session(['nomor_meja' => $nomorMeja]);
         }
 
-        $tables = Meja::where('nomor_meja', $nomorMeja)->first();
+        $tables = Meja::where('nomor_meja', $nomorMeja)
+            ->where('is_active', true)
+            ->first();
         return view('customer.menu_detail', compact('menu', 'menus', 'categories', 'tables'));
     }
 
@@ -217,6 +260,16 @@ class SelfOrderController extends Controller
         if (!session('id_meja') || !session('selforder_code')) {
             return redirect()->route('home')->with('error', 'Silakan scan QR meja terlebih dahulu.');
         }
+
+        $activeTable = Meja::query()
+            ->whereKey(session('id_meja'))
+            ->where('is_active', true)
+            ->exists();
+
+        if (!$activeTable) {
+            session()->forget(['cart', 'cart_count', 'selforder_code']);
+            return redirect()->route('home')->with('error', 'Meja ini sedang nonaktif. Silakan hubungi staf restoran.');
+        }
         
         // FIX: Ambil dari $request->catatan, bukan $request->menu->catatan
         $catatan = trim($request->input('catatan', ''));
@@ -250,6 +303,14 @@ class SelfOrderController extends Controller
 
     public function cartUpdate(Request $request)
     {
+        // FIX VAL-02: validasi semua input sebelum diproses
+        $request->validate([
+            'key'    => ['required', 'string', 'max:150'],
+            'action' => ['required', 'string', 'in:update_note,update_qty'],
+            'catatan'=> ['nullable', 'string', 'max:200'],
+            'jumlah' => ['nullable', 'integer', 'min:1', 'max:99'],
+        ]);
+
         $cart = session()->get('cart', []);
         $key = $request->key;
 
@@ -271,6 +332,11 @@ class SelfOrderController extends Controller
 
     public function cartRemove(Request $request)
     {
+        // FIX VAL-03: validasi key sebelum unset
+        $request->validate([
+            'key' => ['required', 'string', 'max:150'],
+        ]);
+
         $key = $request->key;
         $cart = session('cart', []);
         unset($cart[$key]);
@@ -292,7 +358,9 @@ class SelfOrderController extends Controller
                 ->withErrors(['Silakan scan QR code meja terlebih dahulu.']);
         }
 
-        $tables = Meja::where('nomor_meja', $nomorMeja)->first();
+        $tables = Meja::where('nomor_meja', $nomorMeja)
+            ->where('is_active', true)
+            ->first();
 
         if (!$tables || !session('selforder_code')) {
             return redirect()->route('home')->with('error', 'Silakan scan QR meja terlebih dahulu.');
@@ -323,8 +391,12 @@ class SelfOrderController extends Controller
         $menuChangeMessages = [];
         $totalHarga = 0;
 
+        // FIX BUG-09: query semua menu sekaligus (hindari N+1)
+        $cartMenuIds = collect($cartItems)->map(fn($item) => $item['menu']['id'] ?? null)->filter()->values()->all();
+        $menusDb = Menu::whereIn('id', $cartMenuIds)->get()->keyBy('id');
+
         foreach ($cartItems as $key => $item) {
-            $menuDb = Menu::find($item['menu']['id'] ?? null);
+            $menuDb = $menusDb->get($item['menu']['id'] ?? null);
 
             // Cek jika menu dihapus atau ditutup
             if (!$menuDb || $menuDb->status !== 'open') {
@@ -336,13 +408,13 @@ class SelfOrderController extends Controller
                     $hasMenuChanges = true;
                     $menuChangeMessages[] = "Harga '{$menuDb->nama}' telah diperbarui menjadi Rp " . number_format($menuDb->harga, 0, ',', '.') . ". Silahkan kembali ke halaman sebelumnya";
                 }
-                // Selalu kalkulasi ulang berdasarkan harga DB agar aman
+                // FIX BUG-03: selalu kalkulasi dari DB (harga terbaru), jangan di-override dari session
                 $totalHarga += ((int)$menuDb->harga * $item['jumlah']);
             }
         }
 
-        // 3. Kalkulasi Total Harga, PB1 (10%), dan Total Bayar
-        $totalHarga = collect($cartItems)->sum('subtotal');
+        // BUG-03 FIX: baris berikut dihapus — $totalHarga dari DB sudah benar
+        // $totalHarga = collect($cartItems)->sum('subtotal'); // DIHAPUS
         // $pb         = round($totalHarga * 0.1);
         // $totalBayar = $totalHarga + $pb;
 
@@ -388,10 +460,24 @@ class SelfOrderController extends Controller
             );
         }
 
+        $activeTable = Meja::query()
+            ->whereKey($idMeja)
+            ->where('is_active', true)
+            ->exists();
+
+        if (!$activeTable) {
+            session()->forget(['cart', 'cart_count', 'selforder_code']);
+            return redirect()->route('home')->with('error', 'Meja ini sedang nonaktif. Pesanan tidak dapat dilanjutkan.');
+        }
+
+        // FIX BUG-09: query semua menu sekaligus sebelum loop (hindari N+1 ganda)
+        $cartMenuIds = collect($cart)->map(fn($item) => $item['menu']['id'] ?? null)->filter()->values()->all();
+        $allMenusDb = Menu::whereIn('id', $cartMenuIds)->get()->keyBy('id');
+
         // --- PENGECEKAN RACE CONDITION (DETIK TERAKHIR) ---
         $hasChanges = false;
         foreach ($cart as $key => $item) {
-            $menu = Menu::find($item['menu']['id'] ?? null);
+            $menu = $allMenusDb->get($item['menu']['id'] ?? null);
             // Jika menu dihapus, ditutup admin, atau harganya berubah
             if (!$menu || $menu->status !== 'open' || (int)$menu->harga !== (int)($item['menu']['harga'] ?? 0)) {
                 $hasChanges = true;
@@ -411,7 +497,7 @@ class SelfOrderController extends Controller
         $detailItems = [];
 
         foreach ($cart as $key => $item) {
-            $menu = Menu::find($item['menu']['id'] ?? null);
+            $menu = $allMenusDb->get($item['menu']['id'] ?? null);
 
             $jumlah = (int) ($item['jumlah'] ?? 0);
 
@@ -486,16 +572,7 @@ class SelfOrderController extends Controller
 
         if ($metode === 'midtrans') {
             try {
-                MidtransConfig::$serverKey = config(
-                    'services.midtrans.server_key',
-                    env('MIDTRANS_SERVER_KEY')
-                );
-                MidtransConfig::$isProduction = (bool) config(
-                    'services.midtrans.is_production',
-                    env('MIDTRANS_IS_PRODUCTION') === 'true'
-                );
-                MidtransConfig::$isSanitized = true;
-                MidtransConfig::$is3ds = true;
+                app(MidtransConfigService::class)->configure();
 
                 $pembayaran = $pesanan->pembayaran()
                     ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
@@ -606,6 +683,9 @@ class SelfOrderController extends Controller
         $statusPembayaran = strtolower(trim((string) ($fullPayment?->status ?? '')));
         $metodePembayaran = strtolower(trim((string) ($fullPayment?->metode ?? '')));
         $isCashPayment = $metodePembayaran === 'tunai';
+        $orderExpiresAt = $pesanan->created_at
+            ? $pesanan->created_at->copy()->addMinutes(max(1, (int) config('services.selforder.payment_window_minutes', 30)))->timestamp * 1000
+            : null;
 
         $snapToken = strtolower(trim((string) ($latestPayment?->status ?? ''))) === 'pending'
             ? $latestPayment?->snap_token
@@ -628,7 +708,8 @@ class SelfOrderController extends Controller
             'statusPembayaran',
             'metodePembayaran',
             'isCashPayment',
-            'midtransProduction'
+            'midtransProduction',
+            'orderExpiresAt'
         ));
     }
 

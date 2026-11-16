@@ -15,15 +15,15 @@
                 inset: auto !important;
                 z-index: auto !important;
                 display: flex !important;
-                flex: 0 0 22rem !important;
-                width: 22rem !important;
+                flex: 0 0 17rem !important;
+                width: 17rem !important;
                 max-width: none !important;
                 height: 100% !important;
                 transform: none !important;
                 translate: none !important;
                 visibility: visible !important;
             }
-            // tutup tombol x versi 1280px
+            /* tutup tombol x versi 1280px */
             .selforder-close-button {
                 display: none !important;
             }
@@ -94,7 +94,7 @@
                                 <span aria-label="Password disembunyikan">••••••••</span>
                             </p>
                             <p class="mt-1 text-xs text-stone-600">
-                                Password tersimpan dalam bentuk aman dan tidak dapat ditampilkan. Jika lupa, gunakan fitur ubah/reset password.
+                                Password tersimpan dalam bentuk aman dan tidak dapat ditampilkan. Jika lupa, silahkan hubungi admin.
                             </p>
                         </div>
                     </details>
@@ -145,6 +145,7 @@
                         ['route' => 'admin.selforder', 'label' => 'Self-Order', 'icon' => '🧾', 'access' => ['admin', 'kasir']],
                         ['route' => 'admin.meja', 'label' => 'Alokasi Meja', 'icon' => '🪑', 'access' => ['admin', 'kasir']],
                         ['route' => 'admin.reservasi', 'label' => 'Reservasi', 'icon' => '📅', 'access' => ['admin', 'kasir']],
+                        ['route' => 'admin.rekapan', 'label' => 'Rekapan', 'icon' => '📋', 'access' => ['admin', 'kasir']],
                     ];
                 @endphp
 

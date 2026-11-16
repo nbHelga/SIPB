@@ -68,22 +68,55 @@
             </div>
         </div>
     </div>
+    <div class="mb-5 rounded-xl border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-950">
+        Alokasikan seluruh meja reservasi sekaligus sebelum menyimpan. Alokasi bertahap dapat membuat kapasitas yang terlihat untuk reservasi lain tidak akurat.
+    </div>
 
     <!-- RENDER DENAH MEJA -->
     @foreach($denahMeja as $lantai => $daftarMeja)
         <div x-show="currentTab == '{{ $lantai }}'" style="display: none;" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
             
             @foreach($daftarMeja as $meja)
-                <div :class="getMejaClass('{{ $meja->id }}')" 
+                 <div x-show="!isPlotting || !selectedResId || {{ $meja->is_active ? 'true' : 'false' }}"
+                     :class="getMejaClass('{{ $meja->id }}')"
                      @click="toggleMeja('{{ $meja->id }}')" 
-                     class="border-4 border-stone-900 rounded-xl p-4 flex items-center justify-between relative min-h-[90px] transition-all select-none">
+                     class="border-4 border-stone-900 rounded-xl p-4 flex flex-col justify-between relative min-h-[150px] transition-all select-none">
                      
                     <div class="flex items-center gap-3">
                         <span class="w-4 h-4 rounded-full mr-2 flex-shrink-0 border-2 border-stone-900/20" :class="getLampClass('{{ $meja->id }}')"></span>
                         <div class="flex flex-col">
                             <span class="text-xl font-black text-stone-800">#{{ $meja->nomor_meja }}</span>
                             <span class="text-[10px] uppercase font-bold text-stone-500">Lantai {{ $meja->lantai }}</span>
+                            <span class="text-[10px] font-black uppercase {{ $meja->is_active ? 'text-emerald-700' : 'text-stone-500' }}">{{ $meja->is_active ? 'Aktif' : 'Nonaktif' }}</span>
                         </div>
+                    </div>
+
+                    <div class="mt-3 space-y-2" x-show="!isPlotting" @click.stop>
+                        @if($canManageTables)
+                        <form method="POST" action="{{ route('admin.meja.update', $meja->id) }}" class="flex items-center gap-1.5">
+                            @csrf
+                            @method('PUT')
+                            <input type="text" name="nomor_meja" value="{{ $meja->nomor_meja }}" required maxlength="10" class="min-w-0 w-20 rounded border border-stone-400 px-1.5 py-1 text-xs font-bold" aria-label="Nomor meja">
+                            <select name="lantai" class="min-w-0 flex-1 rounded border border-stone-400 px-1.5 py-1 text-xs font-bold" aria-label="Pindahkan meja {{ $meja->nomor_meja }} ke lantai">
+                                <option value="1" @selected((string) $meja->lantai === '1')>Lantai 1</option>
+                                <option value="2" @selected((string) $meja->lantai === '2')>Lantai 2</option>
+                            </select>
+                            <button type="submit" class="rounded border border-stone-700 bg-white px-2 py-1 text-[10px] font-bold hover:bg-stone-100">Simpan</button>
+                        </form>
+                        <form method="POST" action="{{ route('admin.meja.delete', $meja->id) }}" onsubmit="return confirm('Hapus meja ini? Riwayat lama akan tetap tersimpan tanpa nomor meja.');">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="w-full rounded border border-red-700 bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700 transition hover:bg-red-100">Hapus meja</button>
+                        </form>
+                        <form method="POST" action="{{ route('admin.meja.active', $meja->id) }}">
+                            @csrf
+                            @method('PATCH')
+                            <input type="hidden" name="is_active" value="{{ $meja->is_active ? '0' : '1' }}">
+                            <button type="submit" class="w-full rounded border border-stone-700 px-2 py-1 text-[10px] font-bold transition {{ $meja->is_active ? 'bg-stone-200 text-stone-700 hover:bg-stone-300' : 'bg-emerald-700 text-white hover:bg-emerald-800' }}">
+                                {{ $meja->is_active ? 'Nonaktifkan' : 'Aktifkan' }}
+                            </button>
+                        </form>
+                        @endif
                     </div>
 
                     <!-- Highlight Badge Tabrakan Waktu -->
@@ -93,13 +126,30 @@
                 </div>
             @endforeach
 
+            @if($canManageTables)
+                <button type="button" @click="openAddTable('{{ $lantai }}')" x-show="!isPlotting"
+                    class="flex min-h-[150px] items-center justify-center rounded-xl border-4 border-dashed border-stone-400 bg-stone-100 text-5xl font-black text-stone-500 transition hover:border-stone-700 hover:bg-stone-200 hover:text-stone-900"
+                    aria-label="Tambah meja di lantai {{ $lantai }}" title="Tambah meja di lantai {{ $lantai }}">+</button>
+            @endif
+
         </div>
     @endforeach
 
-<!-- RENDER DENAH MEJA -->
-    @foreach($denahMeja as $lantai =>$daftarMeja)
-        <!-- (Isi denah meja Anda yang lama tetap sama di sini) -->
-    @endforeach
+    @if($canManageTables)
+    <div x-show="showAddTableModal" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" @click.self="showAddTableModal = false">
+        <form method="POST" action="{{ route('admin.meja.store') }}" class="w-full max-w-sm rounded-xl border-4 border-stone-900 bg-white p-5 shadow-[6px_6px_0_0_rgba(0,0,0,1)]" @click.stop>
+            @csrf
+            <h2 class="text-lg font-black text-stone-900">Tambah Meja · Lantai <span x-text="addTableFloor"></span></h2>
+            <input type="hidden" name="lantai" :value="addTableFloor">
+            <label for="new-table-number" class="mt-4 block text-sm font-bold text-stone-700">Nomor meja</label>
+            <input id="new-table-number" name="nomor_meja" required maxlength="10" class="mt-1 w-full rounded-lg border-2 border-stone-400 px-3 py-2 font-bold" placeholder="Contoh: M23">
+            <div class="mt-4 flex justify-end gap-2">
+                <button type="button" @click="showAddTableModal = false" class="rounded-lg border border-stone-400 px-3 py-2 text-sm font-bold">Batal</button>
+                <button type="submit" class="rounded-lg border-2 border-stone-900 bg-[#4A2311] px-4 py-2 text-sm font-bold text-white">Tambah meja</button>
+            </div>
+        </form>
+    </div>
+    @endif
 
     <!-- DAFTAR RESERVASI HARI INI -->
     <!-- Tambahkan kondisi && selectedResId agar daftar ini hanya muncul ketika Admin sudah memilih reservasi -->
@@ -117,10 +167,15 @@
                      @click="selectedResId = res.id; onSelectRes()">
                     
                     <div class="flex justify-between items-start mb-2">
-                        <h3 class="font-black text-stone-900" x-text="res.customer_nama"></h3>
+                        <h3 class="font-bold text-stone-900" x-text="res.customer_nama"></h3>
                         <span class="text-[10px] uppercase font-bold px-2 py-1 rounded border border-stone-300 bg-white text-stone-600" x-text="res.status"></span>
                     </div>
-                    <p class="text-xs font-bold text-stone-500 mb-3" x-text="`${res.tgl_formatted} • ${res.jam_mulai} - ${res.jam_selesai}`"></p>
+
+                    <div class="flex justify-between items-start mb-2">
+                        <h3 class="font-black text-stone-900" x-text="res.jml_org"></h3>
+                        <span class="text-xs font-bold text-stone-500 mb-3" x-text="`${res.tgl_formatted} • ${res.jam_mulai} - ${res.jam_selesai}`"></span>
+                    </div>
+                    {{-- <p class="text-xs font-bold text-stone-500 mb-3" x-text="`${res.tgl_formatted} • ${res.jam_mulai} - ${res.jam_selesai}`"></p> --}}
                     
                     <div class="flex flex-wrap gap-1.5">
                         <template x-if="res.meja_ids && res.meja_ids.length > 0">
@@ -158,6 +213,8 @@
         Alpine.data('alokasiMejaApp', () => ({
             currentTab: '{{ $lantaiList->first() ?? 1 }}',
             isPlotting: false,
+            showAddTableModal: false,
+            addTableFloor: '1',
             selectedResId: '',
             selectedTables: [],
             conflictTables: [],
@@ -190,6 +247,11 @@
                 }
             },
 
+            openAddTable(floor) {
+                this.addTableFloor = String(floor);
+                this.showAddTableModal = true;
+            },
+
             onSelectRes() {
                 this.selectedTables = [];
                 this.conflictTables = [];
@@ -206,6 +268,11 @@
             getMejaClass(id) {
                 const idStr = String(id).trim(); // trim() untuk mencegah error spasi dari blade
                 let base = 'bg-white shadow-[4px_4px_0_0_rgba(0,0,0,1)] ';
+                const table = ALL_MEJA.find(item => String(item.id) === idStr);
+
+                if (!table?.is_active) {
+                    return 'bg-stone-200 border-stone-400 text-stone-400 grayscale cursor-not-allowed shadow-none';
+                }
                 
                 if (!this.isPlotting || !this.selectedResId) return base;
 
@@ -225,6 +292,8 @@
 
             getLampClass(id) {
                 const idStr = String(id).trim();
+                const table = ALL_MEJA.find(item => String(item.id) === idStr);
+                if (!table?.is_active) return 'bg-stone-400';
                 
                 if (this.isPlotting && this.selectedResId) {
                     if (this.selectedTables.includes(idStr)) return 'bg-yellow-400';
@@ -250,9 +319,14 @@
                 if (!this.isPlotting || !this.selectedResId) return;
 
                 const idStr = String(id).trim();
+                const table = ALL_MEJA.find(item => String(item.id) === idStr);
+                if (!table?.is_active) {
+                    this.notify('Meja nonaktif tidak dapat dialokasikan.');
+                    return;
+                }
 
                 if (this.conflictTables.includes(idStr) || this.lampStatus[idStr] === 'occupied') {
-                    this.notify('Meja ini berpotensi bertabrakan dengan reservasi lain atau sedang dipakai.');
+                    this.notify('Meja ini berpotensi bertabrakan dengan reservasi lain.');
                     return;
                 }
 

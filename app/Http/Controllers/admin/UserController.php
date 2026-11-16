@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class UserController extends Controller
 {
@@ -47,11 +48,18 @@ class UserController extends Controller
             'password.min'        => 'Password minimal terdiri dari 6 karakter.',
         ]);
 
-        User::create([
-            'username' => $validated['username'],
-            'password' => Hash::make($validated['password']),
-            'status' => $validated['status'],
-        ]);
+        try {
+            User::create([
+                'username' => $validated['username'],
+                'password' => Hash::make($validated['password']),
+                'status' => $validated['status'],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Gagal menambahkan akun pengguna.', ['error' => $e->getMessage()]);
+
+            return back()->withInput($request->except('password'))
+                ->with('error', 'Akun pengguna gagal ditambahkan. Silakan coba lagi.');
+        }
 
         return redirect()->route('admin.user')->with('success', 'User berhasil ditambahkan!');
     }

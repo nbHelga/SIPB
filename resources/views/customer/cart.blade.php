@@ -30,8 +30,8 @@
                 @foreach($cartItems as $key => $item)
                     @php 
                         $menu = $item['menu'];
-                        // Ambil catatan dari berbagai kemungkinan penamaan key di session
-                        $catatan = $item['catatan'] ?? $item['catatan'] ?? null;
+                        // Ambil catatan dari item session
+                        $catatan = $item['catatan'] ?? null;
                     @endphp
                     
                     <div class="bg-white rounded-lg border-2 border-stone-300 shadow-[4px_4px_0_0_rgba(0,0,0,0.15)] p-4 flex flex-col md:flex-row items-start md:items-center gap-4">
@@ -104,8 +104,9 @@
                                     <input type="hidden" name="key" value="{{ $key }}">
                                     <input type="hidden" name="action" value="update_qty">
                                     
-                                    <button type="submit" name="jumlah" :value="qty - 1" x-show="qty > 1"
-                                            class="w-8 h-8 bg-stone-200 hover:bg-stone-300 rounded-lg font-bold border-2 border-stone-400 active:translate-y-0.5 flex items-center justify-center">
+                                    <button type="submit" name="jumlah" :value="qty - 1" :disabled="qty <= 1"
+                                            :class="qty <= 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-stone-300 active:translate-y-0.5'"
+                                            class="w-8 h-8 bg-stone-200 rounded-lg font-bold border-2 border-stone-400 flex items-center justify-center">
                                         −
                                     </button>
 

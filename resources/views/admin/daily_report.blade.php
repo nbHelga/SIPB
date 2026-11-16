@@ -152,25 +152,35 @@
         <!-- 2. RINCIAN PENDAPATAN -->
         <div class="font-bold" style="margin-bottom: 5px;">2. RINCIAN PENDAPATAN</div>
 
-        @forelse($pendapatan->reject(fn ($p) => strtolower(trim((string) $p->metode)) === 'tunai') as $p)
+        <div class="font-bold" style="margin-bottom: 5px;">PEMBAYARAN MIDTRANS</div>
+        @forelse($midtransPendapatan as $metode => $nominal)
             <div class="flex-between" style="margin-bottom: 4px;">
-                <span style="text-transform: uppercase;">{{ str_replace('_', ' ', $p->metode) }}</span>
-                <span>{{ number_format($p->total_nominal, 0, ',', '.') }}</span>
+                <span style="text-transform: uppercase;">{{ str_replace('_', ' ', $metode) }}</span>
+                <span>Rp {{ number_format($nominal, 0, ',', '.') }}</span>
             </div>
         @empty
-            <div class="text-center" style="font-style: italic;">Tidak ada pendapatan non-tunai</div>
+            <div class="text-center" style="font-style: italic;">Tidak ada pembayaran Midtrans</div>
         @endforelse
+        <div class="flex-between font-bold">
+            <span>TOTAL MIDTRANS</span>
+            <span>Rp {{ number_format($totalMidtrans, 0, ',', '.') }}</span>
+        </div>
 
-        {{-- <div class="divider"></div> --}}
-        
+        @if($pelunasanNonTunai->isNotEmpty())
+            <div class="divider-solid" style="margin-top: 10px;"></div>
+            <div class="font-bold" style="margin-bottom: 5px;">PELUNASAN RESERVASI (DILUAR MIDTRANS)</div>
+        @endif
+        @forelse($pelunasanNonTunai as $metode => $nominal)
+            <div class="flex-between" style="margin-bottom: 4px;">
+                <span style="text-transform: uppercase;">{{ str_replace('_', ' ', $metode) }}</span>
+                <span>Rp {{ number_format($nominal, 0, ',', '.') }}</span>
+            </div>
+        @empty
+        @endforelse
 
         <div class="divider" style="margin-top: 15px;"></div>
 
         <!-- RINGKASAN SETORAN KASIR -->
-        <div class="flex-between">
-            <span>NON-TUNAI (Sistem)</span>
-            <span>Rp {{ number_format($totalNonTunai, 0, ',', '.') }}</span>
-        </div>
         <div class="flex-between font-bold">
             <span>TUNAI</span>
             <span>Rp {{ number_format($totalTunai, 0, ',', '.') }}</span>

@@ -9,12 +9,15 @@ class Meja extends Model
     protected $table = 'meja';
     // gunakan primary key default 'id' sesuai migration
 
-    protected $fillable = ['nomor_meja', 'lantai', 'status'];
+    protected $fillable = ['nomor_meja', 'lantai', 'status', 'is_active'];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
 
     public function pesanan()
     {
-        // Pesanan.nomor_meja menyimpan FK ke meja.id
-        return $this->hasMany(Pesanan::class, 'nomor_meja', 'id');
+        return $this->hasMany(Pesanan::class, 'id_meja', 'id');
     }
 
     public function detailReservasi()

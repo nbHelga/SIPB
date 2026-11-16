@@ -50,16 +50,6 @@ class SendReservasiNotifications extends Command
                     'kode_pesanan' => $r->pesanan->kode_pesanan,
                 ]);
                 $tableNumber = $r->detailReservasi->first()?->meja?->nomor_meja ?? '-';
-                // $customerMessage = "PENGINGAT RESERVASI BESOK\n"
-                //     . "{$reservationDate}, {$r->jam_mulai}–{$r->jam_selesai} WIB\n"
-                //     . "Tamu: {$r->jml_org} orang\n"
-                //     . "Lokasi: BigBang Eatery\n"
-                //     . "Detail: {$detailUrl}";
-                // $adminMessage = "PENGINGAT RESERVASI BESOK\n"
-                //     . "{$customer->nama} ({$customer->nomor_telp})\n"
-                //     . "Jadwal: {$reservationDate}, {$r->jam_mulai}–{$r->jam_selesai} WIB\n"
-                //     . "Tamu: {$r->jml_org} orang | Meja: {$tableNumber}\n"
-                //     . "Detail: " . route('admin.dashboard');
                 $customerMessage = "⏰ *Pengingat Reservasi Besok!*\n\n"
                     . "Halo *{$customer->nama}*, kami tunggu kehadirannya besok di BigBang Eatery.\n\n"
                     . "📅 Tgl: *{$reservationDate}*\n"
@@ -74,7 +64,7 @@ class SendReservasiNotifications extends Command
                     // . "Cek admin: " . route('admin.dashboard');
 
                 $this->sendOnce($r, 'customer_reminder_notif', $customer->nomor_telp, $customerMessage, $fonnte);
-                $this->sendOnce($r, 'admin_reminder_notif', env('FONNTE_PHONE'), $adminMessage, $fonnte);
+                $this->sendOnce($r, 'admin_reminder_notif', config('services.fonnte.phone'), $adminMessage, $fonnte); // FIX SECURITY-04
             }
 
             $this->info('Pemeriksaan reminder selesai.');

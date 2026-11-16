@@ -8,38 +8,22 @@ use App\Models\Pesanan;
 use App\Models\Pembayaran;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
-use \App\Services\NotaService;
+use App\Services\NotaService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Carbon\Carbon;
+use App\Http\Controllers\customer\BookingController;
 
 class ReservationController extends Controller
 {
     // RESERVASI
     public function reservasi(Request $request, $id = null)
     {
-
-        // $query = Reservasi::with([
-        //     'customer',
-        //     'detailReservasi.meja',
-        //     'pesanan.detailPesanan.menu',
-        //     'pesanan.pembayaran',
-        // ])
-        // ->whereHas('pesanan.pembayaran', function ($q) {
-        //     $q->where('jenis', 'DP')
-        //         ->where('status', 'Success')
-        //         ->where('nominal', '>=', 50000);
-        // })
-        // ->whereHas('pesanan', fn ($q) => $q->whereNotIn('status', ['Pending', 'Paid']))
-        // ->orderByDesc(
-        //     Pesanan::select('updated_at')
-        //         ->whereColumn('pesanan.id', 'reservasi.id_pesanan')
-        //         ->limit(1)
-        // );
-
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'filter.status' => [
                 'nullable',
-                'in:pending,reserved,confirmed,completed,cancelled',
+                'in:waiting,pending,reserved,confirmed,completed,cancelled,forfeited',
             ],
             'waktu_mulai' => ['nullable', 'date_format:Y-m-d'],
             'waktu_selesai' => ['nullable', 'date_format:Y-m-d'],
@@ -60,7 +44,7 @@ class ReservationController extends Controller
             $waktuSelesai !== ''
             && $waktuSelesai < $waktuMulai
         ) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'waktu_selesai' => 'Tanggal akhir harus sama atau setelah tanggal mulai.',
             ]);
         }
@@ -92,14 +76,19 @@ class ReservationController extends Controller
             });
         }
 
-        if ($status !== '') {
+        if ($status === 'forfeited') {
+            $query->where('reservasi.dp_forfeited', true)
+                ->whereHas('pesanan', fn ($order) =>
+                    $order->whereRaw("LOWER(TRIM(status)) = 'cancelled'")
+                );
+        } elseif ($status !== '') {
             $query->whereHas('pesanan', fn ($order) =>
                 $order->whereRaw('LOWER(TRIM(status)) = ?', [$status])
             );
         } else {
             $query->whereHas('pesanan', fn ($order) =>
                 $order->whereRaw(
-                    "LOWER(TRIM(status)) IN ('reserved', 'confirmed', 'completed')"
+                    "LOWER(TRIM(status)) IN ('waiting', 'reserved', 'confirmed', 'completed')"
                 )
             );
         }
@@ -122,20 +111,68 @@ class ReservationController extends Controller
             ])->find($selectedId)
             : null;
 
+        $dpBayar = 0;
+        $sisaTagihan = 0;
+        if ($selectedReservasi) {
+            $totalHarga = (float) ($selectedReservasi->pesanan->total_harga ?? 0);
+            $dpBayar = (float) ($selectedReservasi->pesanan?->pembayaran
+                ?->filter(fn ($p) => strtolower(trim((string) $p->jenis)) === 'dp' && strtolower(trim((string) $p->status)) === 'success')
+                ->sum('nominal') ?? 0);
+            $sisaTagihan = max(0, $totalHarga - $dpBayar);
+        }
+
         return view('admin.reservasi', compact(
             'reservasiList',
             'selectedReservasi',
             'selectedId',
+            'dpBayar',
+            'sisaTagihan',
             // 'isKasir',
             'waktuMulai',
             'waktuSelesai'
         ));
     }
 
+    public function decideApproval(Request $request, int $id, BookingController $bookingController)
+    {
+        $data = $request->validate([
+            'decision' => ['required', 'in:approve,reject'],
+            'rejection_reason' => ['required_if:decision,reject', 'nullable', 'string', 'max:1000'],
+        ]);
+
+        DB::transaction(function () use ($data, $id) {
+            $reservation = Reservasi::whereKey($id)->lockForUpdate()->firstOrFail();
+            $order = Pesanan::whereKey($reservation->id_pesanan)->lockForUpdate()->firstOrFail();
+            if (strtolower(trim((string) $order->status)) !== 'waiting') {
+                throw ValidationException::withMessages(['status' => 'Reservasi ini sudah diproses.']);
+            }
+
+            if ($data['decision'] === 'approve') {
+                $order->status = 'Pending';
+            } else {
+                $order->status = 'Cancelled';
+                $reservation->rejection_reason = trim((string) $data['rejection_reason']);
+                $reservation->save();
+                $order->pembayaran()
+                    ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
+                    ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'waiting')")
+                    ->update(['status' => 'Failed']);
+            }
+            $order->save();
+        }, 3);
+
+        $reservation = Reservasi::with(['customer', 'pesanan'])->findOrFail($id);
+        $bookingController->notifyApprovalDecision($reservation);
+
+        return redirect()->route('admin.reservasi', $id)->with('success',
+            $data['decision'] === 'approve' ? 'Reservasi disetujui.' : 'Reservasi ditolak.'
+        );
+    }
+
     public function reservasiUpdate(Request $request, $id)
     {
         $validated = $request->validate([
-            'status' => ['required', 'in:confirmed,completed'],
+            'status' => ['required', 'in:confirmed,completed,cancelled'],
         ]);
 
         DB::transaction(function () use ($validated, $id) {
@@ -149,15 +186,25 @@ class ReservationController extends Controller
 
             if ($validated['status'] === 'confirmed') {
                 if ($statusSaatIni !== 'reserved') {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                    throw ValidationException::withMessages([
                         'status' => 'Hanya reservasi berstatus reserved yang dapat dikonfirmasi.',
                     ]);
                 }
 
                 $pesanan->status = 'Confirmed';
+            } elseif ($validated['status'] === 'cancelled') {
+                if ($statusSaatIni !== 'confirmed') {
+                    throw ValidationException::withMessages([
+                        'status' => 'Hanya reservasi confirmed yang dapat dibatalkan.',
+                    ]);
+                }
+                $pesanan->status = 'Cancelled';
+                $reservasi->cancellation_reason = 'Dibatalkan oleh admin.';
+                $reservasi->save();
+                $reservasi->detailReservasi()->delete();
             } else {
                 if ($statusSaatIni !== 'confirmed') {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                    throw ValidationException::withMessages([
                         'status' => 'Hanya reservasi berstatus confirmed yang dapat diselesaikan.',
                     ]);
                 }
@@ -170,7 +217,7 @@ class ReservationController extends Controller
                 $totalPesanan = (float) $pesanan->total_harga;
 
                 if ($totalPesanan <= 0 || $totalDpSukses < $totalPesanan) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                    throw ValidationException::withMessages([
                         'status' => 'Total DP yang berhasil dibayar belum melunasi pesanan.',
                     ]);
                 }
@@ -239,7 +286,7 @@ class ReservationController extends Controller
         if ($paymentData['metode'] === 'tunai') {
             $diterima = (float) ($validated['uang_diterima'] ?? $sisa);
             if ($diterima < $sisa) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
+                throw ValidationException::withMessages([
                     'uang_diterima' => 'Uang diterima kurang dari sisa tagihan.',
                 ]);
             }

@@ -81,7 +81,7 @@
                 </div>
 
                 <button type="submit" class="w-full py-2.5 bg-[#4A2311] text-white font-black text-xs md:text-sm rounded-lg border-2 border-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all">
-                    🛒 + Add to Cart
+                    🛒 Tambahkan
                 </button>
             </form>
         </div>
