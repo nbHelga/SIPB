@@ -219,12 +219,28 @@
                         <span class="shrink-0 text-stone-300 font-medium">Catatan Khusus</span>
                         <div class="max-h-24 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words pr-1 text-right text-stone-200 italic">{{ trim($reservasi->keterangan ?? '') ?: '-' }}</div>
                     </div>
+                    <div class="flex items-center justify-between pb-2.5 border-b border-amber-900/30">
+                        <span class="text-stone-300 font-medium">Uang Muka (DP)</span>
+                        <div class="text-right">
+                            <span class="font-bold text-white">Rp {{ number_format($nominalDp, 0, ',', '.') }}</span>
+                            @if($statusPembayaranDp === 'success')
+                                <span class="ml-1.5 inline-block px-2 py-0.5 text-[10px] font-black bg-emerald-500/30 text-emerald-200 rounded border border-emerald-400/40">✓ Lunas</span>
+                            @elseif($statusPembayaranDp === 'failed')
+                                <span class="ml-1.5 inline-block px-2 py-0.5 text-[10px] font-black bg-red-500/30 text-red-200 rounded border border-red-400/40">Gagal</span>
+                            @else
+                                <span class="ml-1.5 inline-block px-2 py-0.5 text-[10px] font-black bg-amber-500/30 text-amber-200 rounded border border-amber-400/40">Pending</span>
+                            @endif
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div class="pt-4 border-t border-amber-900/60">
                 <div class="bg-amber-500/10 p-4 rounded-xl border-2 border-amber-500/30 flex justify-between items-center shadow-[inset_0_0_10px_rgba(0,0,0,0.2)]">
-                    <span class="text-sm text-amber-200 font-bold">Sisa Pelunasan (Di Resto)</span>
+                    <div>
+                        <span class="text-xs md:text-sm text-amber-200 font-bold block">Sisa Pelunasan (Di Resto)</span>
+                        <span class="text-[10px] md:text-xs text-amber-300/70">Total Menu dikurangi DP</span>
+                    </div>
                     <span class="text-xl md:text-2xl font-black text-amber-300">
                         Rp {{ number_format($sisaTagihan, 0, ',', '.') }}
                     </span>

@@ -44,12 +44,12 @@ return [
     'selforder' => [
         // Waktu produksi: 30 menit. Untuk testing gunakan 3 menit.
         // 'payment_window_minutes' => 30,
-        'payment_window_minutes' => (int) env('SELFORDER_PAYMENT_WINDOW_MINUTES', 3),
+        'payment_window_minutes' => (int) env('SELFORDER_PAYMENT_WINDOW_MINUTES', 3), // #live ganti default ke 30 jika live/produksi
     ],
 
     'reservation' => [
         // TEST: 3 menit. Produksi: atur RESERVATION_PAYMENT_WINDOW_MINUTES=60.
-        'payment_window_minutes' => (int) env('RESERVATION_PAYMENT_WINDOW_MINUTES', 3),
+        'payment_window_minutes' => (int) env('RESERVATION_PAYMENT_WINDOW_MINUTES', 3), // #live ganti default ke 60 (atau 30) jika live/produksi
         'late_grace_minutes' => (int) env('RESERVATION_LATE_GRACE_MINUTES', 30),
     ],
 

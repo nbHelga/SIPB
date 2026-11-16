@@ -149,6 +149,8 @@ class ReservationController extends Controller
 
             if ($data['decision'] === 'approve') {
                 $order->status = 'Pending';
+                $order->save();
+                $reservation->touch();
             } else {
                 $order->status = 'Cancelled';
                 $reservation->rejection_reason = trim((string) $data['rejection_reason']);

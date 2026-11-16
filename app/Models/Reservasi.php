@@ -100,7 +100,7 @@ class Reservasi extends Model
      */
     public function getPaymentWindowMinutes(): int
     {
-        return max(1, (int) config('services.reservation.payment_window_minutes', 60));
+        return max(1, (int) config('services.reservation.payment_window_minutes', 60)); // #live sesuaikan nilai default jika tanpa env
     }
 
     /**
@@ -128,22 +128,13 @@ class Reservasi extends Model
             ->first();
 
         if ($isLargeReservation) {
-            // Untuk skala besar: batas waktu dimulai sejak admin menyetujui reservasi ($order->updated_at).
-            // Jika customer sudah menekan 'Mulai Pembayaran DP' atau retry ($payment->midtrans_order_id terisi
-            // dan diperbarui setelah persetujuan), gunakan waktu pembayaran dimulai tersebut.
-            $approvalTime = $order?->updated_at ?? $this->created_at ?? now();
-            $paymentStartedTime = ($payment && $payment->midtrans_order_id) ? $payment->updated_at : null;
-
-            $deadlineStart = ($paymentStartedTime && $paymentStartedTime->gt($approvalTime))
-                ? $paymentStartedTime
-                : $approvalTime;
+            // Untuk skala besar: batas waktu dihitung FIX sejak saat reservasi disetujui admin ($order->updated_at).
+            // Ulangi pembayaran (retry) TIDAK mereset batas waktu ini; pelanggan hanya menggunakan sisa waktu yang ada.
+            $deadlineStart = $order?->updated_at ?? $this->updated_at ?? $this->created_at ?? now();
         } else {
-            // Skala kecil (<=10 pax): dihitung sejak pembayaran DP dibuat atau dicoba ulang (updated_at)
-            $deadlineStart = $payment?->updated_at
-                ?? $payment?->created_at
-                ?? $order?->created_at
-                ?? $this->created_at
-                ?? now();
+            // Skala kecil (<=10 pax): batas waktu dihitung FIX sejak reservasi dibuat ($order->created_at / $this->created_at).
+            // Ulangi pembayaran (retry) TIDAK mereset batas waktu ini.
+            $deadlineStart = $order?->created_at ?? $this->created_at ?? now();
         }
 
         return \Carbon\Carbon::parse($deadlineStart)->addMinutes($this->getPaymentWindowMinutes());

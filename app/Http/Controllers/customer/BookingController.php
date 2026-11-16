@@ -235,7 +235,7 @@ class BookingController extends Controller
 
     private function reservationPaymentWindowMinutes(): int
     {
-        return max(1, (int) config('services.reservation.payment_window_minutes', 60));
+        return max(1, (int) config('services.reservation.payment_window_minutes', 60)); // #live sesuaikan nilai default jika tanpa env
     }
 
     private function reservationDeadline(Reservasi $reservasi): Carbon
@@ -1205,28 +1205,33 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         };
 
         $totalHarga = (float) ($pesanan?->total_harga ?? 0);
-        $dpBayar = (float) ($pesanan?->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'") // FIX BUG-01: hitung DP sukses, bukan pending
+
+        // Ambil nominal DP yang ditetapkan untuk reservasi ini
+        $nominalDp = (int) ($pesanan?->pembayaran
+            ?->filter(fn ($p) => strtolower(trim((string) $p->jenis)) === 'dp')
+            ->sortByDesc('id')
+            ->first()?->nominal ?? 50000);
+
+        // Hitung DP yang sudah sukses dibayar (jika ada)
+        $dpSuccess = (float) ($pesanan?->pembayaran
+            ?->filter(fn ($p) => strtolower(trim((string) $p->jenis)) === 'dp' && strtolower(trim((string) $p->status)) === 'success')
             ->sum('nominal') ?? 0);
-        $sisaTagihan = max(0, $totalHarga - $dpBayar);
+
+        // Sisa pelunasan riil di resto:
+        // Baik saat pembayaran DP masih pending (dalam proses) maupun sudah success (lunas),
+        // sisa tagihan yang riil dilunasi di resto adalah Total Menu dikurangi DP.
+        $pengurangDp = $dpSuccess > 0 ? $dpSuccess : $nominalDp;
+        $sisaTagihan = max(0, $totalHarga - $pengurangDp);
 
         $paymentNotStarted = !$paymentDp
             || (!$paymentDp->midtrans_order_id && !$paymentDp->snap_token
                 && strtolower(trim((string) $paymentDp->status)) === 'pending');
         $bisaUbahMenu = in_array($statusPesanan, ['pending', 'waiting'], true)
             && $paymentNotStarted;
-        $nominalDp = (int) ($pesanan?->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->latest('id')
-            ->value('nominal') ?? 50000);
 
         $menus = Menu::Where('is_reservable', true)
                     ->orderByDesc('is_bestseller')
                     ->get();
-
-        // FIX BUG-02: hapus query duplikat — $paymentDp sudah di-query di atas
-        // Query lama yang dibuang: $paymentDp = $pesanan?->pembayaran()->whereRaw(...)->first();
 
         $paymentStatus = strtolower(trim((string) ($paymentDp?->status ?? '')));
         $withinPaymentWindow = $paymentDp && now()->lt($this->reservationDeadline($reservasi));
@@ -1241,7 +1246,8 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             && (!$paymentDp || (
                 strtolower(trim((string) $paymentDp->status)) === 'pending'
                 && !$paymentDp->snap_token
-            ));
+            ))
+            && $withinPaymentWindow;
 
         $returnUrl = route('customer.reservasi.detail', ['kode_pesanan' => $pesanan->kode_pesanan]);
 
