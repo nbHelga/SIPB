@@ -15,6 +15,7 @@ use App\Models\Customer;
 use App\Models\Reservasi;
 use App\Models\Pembayaran;
 use App\Models\Meja;
+use App\Models\NotifikasiWa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
@@ -47,12 +48,12 @@ class BookingController extends Controller
         return Reservasi::query()
             ->where('id_customer', $customer->id)
             ->whereHas('pesanan', function ($query) {
-                $query->whereRaw("LOWER(TRIM(status)) = 'waiting'")
+                $query->where('status', 'Waiting')
                     ->orWhere(function ($q) {
-                        $q->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                        $q->where('status', 'Pending')
                           ->whereHas('pembayaran', function ($payment) {
-                              $payment->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                                  ->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                              $payment->where('jenis', 'DP')
+                                  ->where('status', 'Pending');
                           });
                     });
             })
@@ -91,17 +92,19 @@ class BookingController extends Controller
     private function reservationDraftErrors(array $draft): array
     {
         $minimumDate = Carbon::now('Asia/Jakarta')->addDay()->toDateString();
+        $maxGuests = ReservationCapacityService::maxGuestsLimit();
         $validator = Validator::make($draft, [
             'nama' => 'required|string|min:3|max:50',
             'nomor_telp' => 'required|string|regex:/^[0-9\+\-\s]{9,20}$/',
             'tanggal' => ['required', 'date_format:Y-m-d', 'after_or_equal:' . $minimumDate],
             'jam_mulai' => 'required|date_format:H:i',
             'jam_selesai' => 'required|date_format:H:i|after:jam_mulai',
-            'jml_org' => 'required|integer|min:1', // FIX UX-02
+            'jml_org' => ['required', 'integer', 'min:1', 'max:' . $maxGuests],
             'keterangan' => 'nullable|string|max:200',
         ], [
             'tanggal.after_or_equal' => 'Reservasi hanya dapat dibuat mulai besok (H+1).',
             'jam_selesai.after' => 'Jam selesai harus lebih akhir dari jam mulai.',
+            'jml_org.max' => 'Jumlah orang maksimal adalah ' . $maxGuests . ' orang.',
         ]);
         $errors = $validator->errors()->all();
 
@@ -129,8 +132,8 @@ class BookingController extends Controller
         }
 
         $successfulDp = $order->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->whereRaw("LOWER(TRIM(status)) = 'success'")
+            ->where('jenis', 'DP')
+            ->where('status', 'Success')
             ->latest('id')
             ->first();
 
@@ -156,8 +159,8 @@ class BookingController extends Controller
         }
 
         $payments = $order->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+            ->where('jenis', 'DP')
+            ->where('status', 'Pending')
             ->latest('id')
             ->get();
 
@@ -245,26 +248,28 @@ class BookingController extends Controller
 
     private function sendApprovalNotification(
         Reservasi $reservasi,
-        string $flag,
+        string $jenisNotifikasi,
         ?string $phone,
         string $message
     ): void {
-        $claimed = Reservasi::query()
-            ->whereKey($reservasi->id)
-            ->where($flag, false)
-            ->update([$flag => true]);
+        if (NotifikasiWa::sudahTerkirim($reservasi->id, $jenisNotifikasi)) {
+            return;
+        }
 
-        if (!$claimed) {
+        if (empty($phone)) {
             return;
         }
 
         if (!app(FonnteService::class)->send($phone, $message)) {
-            Reservasi::whereKey($reservasi->id)->update([$flag => false]);
+            NotifikasiWa::catatGagal($reservasi->id, $jenisNotifikasi);
             Log::warning('WhatsApp notifikasi approval reservasi gagal.', [
                 'reservasi_id' => $reservasi->id,
-                'flag' => $flag,
+                'jenis_notifikasi' => $jenisNotifikasi,
             ]);
+            return;
         }
+
+        NotifikasiWa::catatTerkirim($reservasi->id, $jenisNotifikasi);
     }
 
     private function notifyApprovalPending(Reservasi $reservasi): void
@@ -293,13 +298,13 @@ class BookingController extends Controller
 
         $this->sendApprovalNotification(
             $reservasi,
-            'approval_pending_customer_notif',
+            'approval_pending_customer',
             $reservasi->customer->nomor_telp,
             $customerMessage
         );
         $this->sendApprovalNotification(
             $reservasi,
-            'approval_pending_admin_notif',
+            'approval_pending_admin',
             config('services.fonnte.phone'), // FIX SECURITY-04: gunakan config()
             $adminMessage
         );
@@ -330,7 +335,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
 
         $this->sendApprovalNotification(
             $reservasi,
-            'approval_decision_customer_notif',
+            'approval_decision_customer',
             $reservasi->customer->nomor_telp,
             $message
         );
@@ -398,7 +403,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             ]);
 
             $latestDpId = $lockedOrder->pembayaran()
-                ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
+                ->where('jenis', 'DP')
                 ->latest('id')
                 ->value('id');
 
@@ -452,8 +457,8 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         app(MidtransConfigService::class)->configure();
 
         $payments = $order->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+            ->where('jenis', 'DP')
+            ->where('status', 'Pending')
             ->latest('id')
             ->get();
         $paymentStateUncertain = false;
@@ -570,7 +575,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             $lockedOrder->update(['status' => 'Cancelled']);
 
             $lockedOrder->pembayaran()
-                ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                ->where('status', 'Pending')
                 ->update(['status' => 'Failed']);
         }, 3);
     }
@@ -578,7 +583,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
     public function expirePendingReservations(): void
     {
         Reservasi::whereHas('pesanan', function ($query) {
-                $query->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                $query->where('status', 'Pending');
             })
         ->chunkById(100, function ($reservations) {
                 foreach ($reservations as $reservation) {
@@ -640,8 +645,9 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         }
 
         $requiresApproval = (int) ($prefill['jml_org'] ?? 0) > 10;
+        $maxGuests = ReservationCapacityService::maxGuestsLimit();
 
-        return view('customer.reservasi', compact('menus', 'prefill', 'requiresApproval'));
+        return view('customer.reservasi', compact('menus', 'prefill', 'requiresApproval', 'maxGuests'));
     }
 
     public function reservationMenu()
@@ -665,13 +671,14 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
     public function reservasiStore(Request $request)
     {
         $minimumReservationDate = Carbon::now('Asia/Jakarta')->addDay()->toDateString();
+        $maxGuests = ReservationCapacityService::maxGuestsLimit();
         $validated = $request->validate([
             'nama'         => 'required|string|min:3|max:50',
             'nomor_telp'   => 'required|string|regex:/^[0-9\+\-\s]{9,20}$/',
             'tanggal' => ['required', 'date_format:Y-m-d', 'after_or_equal:' . $minimumReservationDate],
             'jam_mulai'    => 'required|date_format:H:i',
             'jam_selesai'  => 'required|date_format:H:i|after:jam_mulai',
-            'jml_org'      => 'required|integer|min:1', // FIX UX-02: batasan maksimum
+            'jml_org'      => ['required', 'integer', 'min:1', 'max:' . $maxGuests],
             'keterangan'   => 'nullable|string|max:200',
             'menu_qty' => ['nullable', 'array'],
             'menu_qty.*' => ['nullable', 'integer', 'min:0', 'max:100'],
@@ -679,7 +686,10 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             'menu_price.*' => ['nullable', 'integer'],
             'menu_notes' => ['nullable', 'array'],
             'menu_notes.*' => ['nullable', 'string', 'max:200'],
-        ], ['jam_selesai.after' => 'Jam selesai harus lebih akhir dari jam mulai.']);
+        ], [
+            'jam_selesai.after' => 'Jam selesai harus lebih akhir dari jam mulai.',
+            'jml_org.max' => 'Jumlah orang maksimal adalah ' . $maxGuests . ' orang.',
+        ]);
 
         if ($validated['jam_mulai'] < '15:00' || $validated['jam_mulai'] > '23:59'
             || $validated['jam_selesai'] < '15:00' || $validated['jam_selesai'] > '23:59') {
@@ -920,6 +930,11 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 'min:50000',
                 'max:' . $totalHargaMenu,
             ],
+        ], [
+            'nominal_dp.required' => 'Nominal DP wajib diisi.',
+            'nominal_dp.integer' => 'Nominal DP harus berupa angka bulat.',
+            'nominal_dp.min' => 'Nominal DP minimal adalah Rp 50.000.',
+            'nominal_dp.max' => 'Nominal DP tidak boleh melebihi total pesanan menu (Rp ' . number_format($totalHargaMenu, 0, ',', '.') . ').',
         ]);
 
         if ($validator->fails()) {
@@ -1026,13 +1041,13 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         $pendingReservation = Reservasi::query()
             ->where('id_customer', $customerId)
             ->whereHas('pesanan', function ($query) {
-                $query->whereRaw("LOWER(TRIM(status)) = 'waiting'")
+                $query->where('status', 'Waiting')
                     ->orWhere(function ($pending) {
-                        $pending->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                        $pending->where('status', 'Pending')
                             ->where('pesanan.created_at', '>=', now()->subMinutes($this->reservationPaymentWindowMinutes()))
                             ->whereHas('pembayaran', function ($payment) {
-                                $payment->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                                    ->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                                $payment->where('jenis', 'DP')
+                                    ->where('status', 'Pending');
                             });
                     });
             })
@@ -1183,7 +1198,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         $statusPesanan = strtolower(trim((string) ($pesanan?->status ?? 'pending')));
 
         $paymentDp = $pesanan?->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
+            ->where('jenis', 'DP')
             ->latest('id')
             ->first();
 
@@ -1304,7 +1319,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 if (strtolower(trim((string) $pesanan->status)) === 'pending') {
                     $pesanan->update(['status' => 'Cancelled']);
                     $pesanan->pembayaran()
-                        ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                        ->where('status', 'Pending')
                         ->update(['status' => 'Failed']);
                 }
 
@@ -1312,8 +1327,8 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             }
 
             $dpPayment = $pesanan->pembayaran()
-                ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'failed')")
+                ->where('jenis', 'DP')
+                ->whereIn('status', ['Pending', 'Failed'])
                 ->latest('id')
                 ->lockForUpdate()
                 ->first();
@@ -1513,8 +1528,8 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 ->firstOrFail();
 
             $hasSuccessfulDp = $order->pembayaran()
-                ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                ->whereRaw("LOWER(TRIM(status)) = 'success'")
+                ->where('jenis', 'DP')
+                ->where('status', 'Success')
                 ->exists();
 
             if ($hasSuccessfulDp || !in_array(strtolower(trim((string) $order->status)), ['pending', 'waiting'], true)) {
@@ -1523,7 +1538,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
 
             $order->update(['status' => 'Cancelled']);
             $order->pembayaran()
-                ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                ->where('status', 'Pending')
                 ->update(['status' => 'Failed']);
         }, 3);
 
@@ -1540,7 +1555,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 ->with('error', 'Reservasi tidak lagi menunggu pembayaran.');
         }
 
-        $oldPayment = $order->pembayaran()->whereRaw("LOWER(TRIM(jenis)) = 'dp'")->latest('id')->first();
+        $oldPayment = $order->pembayaran()->where('jenis', 'DP')->latest('id')->first();
         if (now()->greaterThanOrEqualTo($this->reservationDeadline($reservasi))) {
             $this->expireUnpaidReservation($reservasi);
             return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
@@ -1565,7 +1580,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 if (strtolower(trim((string) $lockedOrder->status)) !== 'pending') {
                     throw ValidationException::withMessages(['payment' => 'Status reservasi berubah. Muat ulang halaman.']);
                 }
-                $latest = $lockedOrder->pembayaran()->whereRaw("LOWER(TRIM(jenis)) = 'dp'")->latest('id')->first();
+                $latest = $lockedOrder->pembayaran()->where('jenis', 'DP')->latest('id')->first();
                 if ($oldPayment && (!$latest || (int) $latest->id !== (int) $oldPayment->id)) {
                     throw ValidationException::withMessages(['payment' => 'Pembayaran berubah. Muat ulang halaman.']);
                 }

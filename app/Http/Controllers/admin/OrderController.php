@@ -46,17 +46,16 @@ class OrderController extends Controller
         }
 
         if ($filterStatus !== '') {
-            $query->whereRaw('LOWER(TRIM(pesanan.status)) = ?', [$filterStatus]);
+            $query->where('pesanan.status', ucfirst($filterStatus));
         } else {
             // Default mengecualikan Cancelled; pending dengan pembayaran tunai tetap ditampilkan.
             $query->where(function ($q) {
-                $q->whereRaw(
-                    "LOWER(TRIM(pesanan.status)) IN ('paid', 'processing', 'completed')"
-                )->orWhere(function ($pending) {
-                    $pending->whereRaw("LOWER(TRIM(pesanan.status)) = 'pending'")
+                $q->whereIn('pesanan.status', ['Paid', 'Processing', 'Completed'])
+                ->orWhere(function ($pending) {
+                    $pending->where('pesanan.status', 'Pending')
                         ->whereHas('pembayaran', fn ($payment) => $payment
-                            ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
-                            ->whereRaw("LOWER(TRIM(metode)) = 'tunai'")
+                            ->where('jenis', 'Full')
+                            ->where('metode', 'tunai')
                         );
                 });
             });
@@ -99,7 +98,7 @@ class OrderController extends Controller
         $current = strtolower(trim((string) $pesanan->status));
 
         $fullPayment = $pesanan->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+            ->where('jenis', 'Full')
             ->latest('id')
             ->first();
 
@@ -132,7 +131,7 @@ class OrderController extends Controller
 
             if ($next === 'paid') {
                 $payment = $pesanan->pembayaran()
-                    ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+                    ->where('jenis', 'Full')
                     ->lockForUpdate()
                     ->latest('id')
                     ->firstOrFail();

@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('detail_pesanan', function (Blueprint $table) {
             $table->id();
             $table->foreignId('id_pesanan')->constrained('pesanan', 'id')->cascadeOnDelete();
-            $table->foreignId('id_menu')->constrained('menu', 'id')->cascadeOnDelete();
+            $table->foreignId('id_menu')->constrained('menu', 'id')->restrictOnDelete(); //mencegah delete saat menu induk mau dihapus
             $table->integer('jumlah');
             $table->decimal('subtotal', 12, 2);
             $table->string('catatan', 255)->nullable();

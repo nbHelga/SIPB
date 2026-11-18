@@ -5,7 +5,7 @@
 @section('header_right')
     @php $cartCount = count(Session::get('cart', [])); @endphp
     <span class="text-sm font-bold bg-[#4A2311] px-3 py-2 ">Meja {{ $tables->nomor_meja ?? '-' }} &bull; Lt {{ $tables->lantai ?? '-' }}</span>
-    {{-- <h3 class="text-sm font-semibold ">{{ $tables->lantai ?? '-'}}</h3> --}}
+
     @if($isRestaurantOpen)
     <a href="{{ route('customer.cart', ['kode' => session('selforder_code'),'tableNumber' => $tables->nomor_meja,]) }}" class="relative p-2 hover:bg-stone-800 rounded-lg transition">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -35,6 +35,24 @@
                 type="success-toast"
                 :message="session('success')"
                 :duration="3500"
+            />
+        @endif
+
+        {{-- Jika ada error --}}
+        @if(session('error'))
+            <x-alert
+                type="error-toast"
+                :message="session('error')"
+                :duration="3500"
+            />
+        @endif
+
+        {{-- Jika ada validation error --}}
+        @if($errors->any())
+            <x-alert
+                type="error-toast"
+                :message="$errors->first()"
+                :duration="4000"
             />
         @endif
 

@@ -33,7 +33,7 @@
 
         {{-- PERBAIKAN STRUKTUR: Memisahkan form dengan div agar flexbox tidak rusak --}}
         @if($isEdit)
-        <form action="{{ $actionUrl }}" method="POST" class="flex flex-col flex-1 overflow-hidden">
+        <form action="{{ $actionUrl }}" method="POST" class="flex flex-col flex-1 overflow-hidden" onsubmit="return validateEditMenuForm(event, '{{ $containerId }}')">
             @csrf
         @else
         <div class="flex flex-col flex-1 overflow-hidden">
@@ -68,7 +68,7 @@
                         $oldNote = old('menu_notes.'.$menu->id, '');
                     }
                 @endphp
-                <div class="menu-item-card bg-white border-2 border-stone-900 rounded-xl p-4 shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all {{ $oldQty > 0 ? 'border-amber-700 bg-amber-50/20' : '' }}" data-nama="{{ strtolower($menu->nama) }}" data-harga="{{ $menu->harga }}">
+                <div class="menu-item-card bg-white border-2 border-stone-900 rounded-xl p-4 shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all {{ $oldQty > 0 ? 'border-amber-700 bg-amber-50/20' : '' }}" data-id="{{ $menu->id }}" data-nama="{{ strtolower($menu->nama) }}" data-harga="{{ $menu->harga }}">
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-3">
                             <div class="w-16 h-16 bg-stone-200 rounded-lg border-2 border-stone-300 overflow-hidden flex-shrink-0">
@@ -93,9 +93,37 @@
                         </div>
                     </div>
 
+                    @php
+                        $noteLen = mb_strlen($oldNote ?? '');
+                        $hasNoteError = $noteLen > 200 || $errors->has('menu_notes.'.$menu->id);
+                    @endphp
                     <div class="note-dropdown {{ $oldQty > 0 ? '' : 'hidden' }} mt-3 pt-3 border-t border-dashed border-stone-300">
-                        <label class="block text-[11px] font-black text-stone-600 uppercase mb-1">✍️ Catatan Khusus</label>
-                        <textarea name="menu_notes[{{ $menu->id }}]" class="w-full text-xs border border-stone-400 rounded-lg p-2 focus:outline-none focus:border-[#4A2311] font-medium">{{ $oldNote }}</textarea>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-[11px] font-black text-stone-600 uppercase">✍️ Catatan Khusus</label>
+                            <span class="note-char-count text-[10px] font-bold {{ $noteLen > 200 ? 'text-red-600 font-black' : 'text-stone-400' }}">
+                                <span class="current-chars">{{ $noteLen }}</span>/200 karakter
+                            </span>
+                        </div>
+                        <textarea 
+                            name="menu_notes[{{ $menu->id }}]" 
+                            rows="2"
+                            maxlength="250"
+                            placeholder="Contoh: pedas sedang, tanpa seledri, es dipisah... (maks 200 karakter)" 
+                            oninput="validateMenuNote(this, '{{ $containerId }}', '{{ $totalDisplayId }}', '{{ $btnId }}', '{{ $warningId }}')"
+                            class="menu-note-input w-full text-xs border {{ $hasNoteError ? 'border-red-500 bg-red-50' : 'border-stone-400 bg-white' }} rounded-lg p-2 focus:outline-none focus:border-[#4A2311] font-medium transition-colors"
+                        >{{ $oldNote }}</textarea>
+
+                        {{-- Pesan error interaktif sebelum submit --}}
+                        <p class="menu-note-error {{ $noteLen > 200 ? '' : 'hidden' }} text-[11px] font-bold text-red-600 mt-1">
+                            ⚠️ Catatan menu tidak boleh melebihi 200 karakter (saat ini: {{ $noteLen }} karakter).
+                        </p>
+
+                        {{-- Pesan error dari server (Blade validation) --}}
+                        @error('menu_notes.'.$menu->id)
+                            <p class="text-[11px] font-bold text-red-600 mt-1">
+                                ⚠️ {{ $message }}
+                            </p>
+                        @enderror
                     </div>
                 </div>
                 @endforeach
@@ -139,12 +167,97 @@
 <script>
 function toggleModal(modalId, show) {
     const modal = document.getElementById(modalId);
+    if (!modal) return;
     if (show) {
         modal.classList.remove('hidden');
         calculateModalTotal('{{ $containerId }}', '{{ $totalDisplayId }}', '{{ $btnId }}', '{{ $warningId }}');
+        
+        // Cek validasi catatan pada item yang sudah terpilih saat modal dibuka
+        const container = document.getElementById('{{ $containerId }}');
+        if (container) {
+            container.querySelectorAll('.menu-item-card').forEach(card => {
+                const qty = parseInt(card.querySelector('.qty-input').value) || 0;
+                if (qty > 0) {
+                    const textarea = card.querySelector('textarea[name^="menu_notes"]');
+                    if (textarea) validateMenuNote(textarea);
+                }
+            });
+        }
     } else {
         modal.classList.add('hidden');
     }
+}
+
+function validateMenuNote(textarea, containerId, displayId, btnId, warningId) {
+    if (!textarea) return true;
+    const maxLen = 200;
+    const val = textarea.value || '';
+    const currentLen = val.length;
+    const parent = textarea.closest('.note-dropdown');
+    const charCountEl = parent ? parent.querySelector('.note-char-count') : null;
+    const currentSpan = charCountEl ? charCountEl.querySelector('.current-chars') : null;
+    const errorMsgEl = parent ? parent.querySelector('.menu-note-error') : null;
+
+    if (currentSpan) {
+        currentSpan.textContent = currentLen;
+    }
+
+    let isValid = true;
+    if (currentLen > maxLen) {
+        isValid = false;
+        if (charCountEl) {
+            charCountEl.classList.add('text-red-600', 'font-black');
+            charCountEl.classList.remove('text-stone-400');
+        }
+        textarea.classList.add('border-red-500', 'bg-red-50');
+        textarea.classList.remove('border-stone-400', 'bg-white');
+        if (errorMsgEl) {
+            errorMsgEl.textContent = `⚠️ Catatan menu melebihi batas (maksimal ${maxLen} karakter, saat ini: ${currentLen} karakter). Silakan persingkat catatan.`;
+            errorMsgEl.classList.remove('hidden');
+        }
+    } else {
+        if (charCountEl) {
+            charCountEl.classList.remove('text-red-600', 'font-black');
+            charCountEl.classList.add('text-stone-400');
+        }
+        textarea.classList.remove('border-red-500', 'bg-red-50');
+        textarea.classList.add('border-stone-400', 'bg-white');
+        if (errorMsgEl) {
+            errorMsgEl.classList.add('hidden');
+        }
+    }
+
+    if (containerId && displayId && btnId && warningId) {
+        calculateModalTotal(containerId, displayId, btnId, warningId);
+    }
+
+    return isValid;
+}
+
+function checkAllMenuNotesValid(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return { valid: true, firstInvalidInput: null };
+
+    let isValid = true;
+    let firstInvalidInput = null;
+
+    container.querySelectorAll('.menu-item-card').forEach(card => {
+        const qty = parseInt(card.querySelector('.qty-input').value) || 0;
+        if (qty > 0) {
+            const textarea = card.querySelector('textarea[name^="menu_notes"]');
+            if (textarea) {
+                const valid = validateMenuNote(textarea);
+                if (!valid) {
+                    isValid = false;
+                    if (!firstInvalidInput) {
+                        firstInvalidInput = textarea;
+                    }
+                }
+            }
+        }
+    });
+
+    return { valid: isValid, firstInvalidInput: firstInvalidInput };
 }
 
 function updateQty(button, amount, containerId, displayId, btnId, warningId) {
@@ -162,6 +275,8 @@ function updateQty(button, amount, containerId, displayId, btnId, warningId) {
         btnMinus.classList.remove('hidden');
         noteDropdown.classList.remove('hidden');
         card.classList.add('border-amber-700', 'bg-amber-50/20');
+        const textarea = noteDropdown.querySelector('textarea');
+        if (textarea) validateMenuNote(textarea);
     } else {
         btnMinus.classList.add('hidden');
         noteDropdown.classList.add('hidden');
@@ -181,19 +296,24 @@ function calculateModalTotal(containerId, displayId, btnId, warningId) {
         total += (qty * harga);
     });
     
-    document.getElementById(displayId).innerText = 'Rp ' + total.toLocaleString('id-ID');
+    const displayEl = document.getElementById(displayId);
+    if (displayEl) {
+        displayEl.innerText = 'Rp ' + total.toLocaleString('id-ID');
+    }
     
     const warning = document.getElementById(warningId);
     const button = document.getElementById(btnId);
 
-    // =========================================================================
-    // LOGIKA KONDISI 2 (AKTIF): WAJIB LEBIH DARI DP
-    // =========================================================================
     const minimumTotal = Number(container.dataset.minimumTotal) || 50000;
     const meetsMinimum = total >= minimumTotal;
+    const notesCheck = checkAllMenuNotesValid(containerId);
+    const allValid = meetsMinimum && notesCheck.valid;
 
     if (warning) {
-        if (meetsMinimum) {
+        if (!notesCheck.valid) {
+            warning.innerHTML = `⚠️ Terdapat catatan menu yang melebihi batas 200 karakter. Mohon periksa dan persingkat catatan yang ditandai merah sebelum menyimpan.`;
+            warning.classList.remove('hidden');
+        } else if (meetsMinimum) {
             warning.classList.add('hidden');
         } else if (total > 0) {
             const kurang = minimumTotal - total;
@@ -206,25 +326,11 @@ function calculateModalTotal(containerId, displayId, btnId, warningId) {
     }
 
     if (button) {
-        button.disabled = !meetsMinimum;
-        button.className = meetsMinimum
+        button.disabled = !allValid;
+        button.className = allValid
             ? "w-full py-3 bg-[#4A2311] text-white font-black rounded-xl border-2 border-stone-900 shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-[#5c2d17] cursor-pointer transition-all uppercase tracking-wider text-xs"
             : "w-full py-3 bg-stone-400 text-stone-200 font-black rounded-xl border-2 border-stone-900 cursor-not-allowed uppercase tracking-wider text-xs";
     }
-
-    /*
-    // =========================================================================
-    // LOGIKA KONDISI 1 (KOMENTAR): TIDAK WAJIB PESAN MENU
-    // =========================================================================
-    // Jika ingin merubah ke kondisi 1, hapus/komentar blok kondisi 2 di atas, 
-    // lalu aktifkan komentar blok di bawah ini:
-    
-    // if (warning) warning.classList.add('hidden');
-    // if (button) {
-    //     button.disabled = false;
-    //     button.className = "w-full py-3 bg-[#4A2311] text-white font-black rounded-xl border-2 border-stone-900 shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-[#5c2d17] cursor-pointer transition-all uppercase tracking-wider text-xs";
-    // }
-    */
 }
 
 function filterMenuSearch(inputId, cardSelector) {
@@ -236,11 +342,21 @@ function filterMenuSearch(inputId, cardSelector) {
 }
 
 function submitSelectedMenus(containerId, modalId) {
+    const notesCheck = checkAllMenuNotesValid(containerId);
+    if (!notesCheck.valid) {
+        if (notesCheck.firstInvalidInput) {
+            notesCheck.firstInvalidInput.focus();
+            notesCheck.firstInvalidInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return false;
+    }
+
     const selectedItems = [];
     document.querySelectorAll('#' + containerId + ' .menu-item-card').forEach(card => {
         const qty = parseInt(card.querySelector('.qty-input').value) || 0;
         if (qty > 0) {
             selectedItems.push({
+                id: card.getAttribute('data-id') || ((card.querySelector('.qty-input').name.match(/\d+/) || [])[0] ?? ''),
                 nama: card.querySelector('.menu-item-title').innerText.trim(),
                 harga: parseFloat(card.getAttribute('data-harga')) || 0,
                 qty: qty,
@@ -253,5 +369,18 @@ function submitSelectedMenus(containerId, modalId) {
         updateSelectedMenuSummary(selectedItems);
     }
     toggleModal(modalId, false);
+}
+
+function validateEditMenuForm(event, containerId) {
+    const notesCheck = checkAllMenuNotesValid(containerId);
+    if (!notesCheck.valid) {
+        if (event) event.preventDefault();
+        if (notesCheck.firstInvalidInput) {
+            notesCheck.firstInvalidInput.focus();
+            notesCheck.firstInvalidInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return false;
+    }
+    return true;
 }
 </script>

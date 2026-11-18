@@ -122,6 +122,11 @@ class MenuController extends Controller
     {
         $menu = Menu::findOrFail($id);
 
+        if ($menu->detailPesanan()->exists()) {
+            return redirect()->route('admin.menu')
+                ->with('error', 'Menu tidak dapat dihapus karena sudah tercatat pada riwayat transaksi. Silakan ubah status menu menjadi Close.');
+        }
+
         if ($menu->gambar) {
             Storage::disk('public')->delete($menu->gambar);
         }

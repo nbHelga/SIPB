@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Reservasi;
+use App\Models\NotifikasiWa;
 use App\Services\FonnteService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -24,10 +25,10 @@ class SendReservasiNotifications extends Command
                     'detailReservasi.meja',
                 ])
                 ->whereHas('pesanan', function ($query) {
-                    $query->whereRaw("LOWER(TRIM(status)) IN ('reserved', 'confirmed')")
+                    $query->whereIn('status', ['Reserved', 'Confirmed'])
                         ->whereHas('pembayaran', function ($payment) {
-                            $payment->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                                ->whereRaw("LOWER(TRIM(status)) = 'success'");
+                            $payment->where('jenis', 'DP')
+                                ->where('status', 'Success');
                         });
                 });
 
@@ -63,8 +64,8 @@ class SendReservasiNotifications extends Command
                     . "HP: {$customer->nomor_telp} | Meja: *{$tableNumber}*\n\n";
                     // . "Cek admin: " . route('admin.dashboard');
 
-                $this->sendOnce($r, 'customer_reminder_notif', $customer->nomor_telp, $customerMessage, $fonnte);
-                $this->sendOnce($r, 'admin_reminder_notif', config('services.fonnte.phone'), $adminMessage, $fonnte); // FIX SECURITY-04
+                $this->sendOnce($r, 'reminder_customer', $customer->nomor_telp, $customerMessage, $fonnte);
+                $this->sendOnce($r, 'reminder_admin', config('services.fonnte.phone'), $adminMessage, $fonnte); // FIX SECURITY-04
             }
 
             $this->info('Pemeriksaan reminder selesai.');
@@ -78,28 +79,27 @@ class SendReservasiNotifications extends Command
         }
     }
 
-    private function sendOnce(Reservasi $reservasi, string $flag, ?string $phone, string $message, FonnteService $fonnte): void
+    private function sendOnce(Reservasi $reservasi, string $jenisNotifikasi, ?string $phone, string $message, FonnteService $fonnte): void
     {
-        $claimed = Reservasi::whereKey($reservasi->id)
-            ->where(function ($query) use ($flag) {
-                $query->whereNull($flag)->orWhere($flag, false);
-            })
-            ->update([$flag => true]);
+        if (NotifikasiWa::sudahTerkirim($reservasi->id, $jenisNotifikasi)) {
+            return;
+        }
 
-        if (!$claimed) {
+        if (empty($phone)) {
             return;
         }
 
         if (!$fonnte->send($phone, $message)) {
-            Reservasi::whereKey($reservasi->id)->update([$flag => false]);
+            NotifikasiWa::catatGagal($reservasi->id, $jenisNotifikasi);
             Log::warning('WhatsApp reminder reservasi gagal dikirim.', [
                 'reservasi_id' => $reservasi->id,
-                'recipient_flag' => $flag,
+                'jenis_notifikasi' => $jenisNotifikasi,
             ]);
-            $this->warn("Gagal mengirim {$flag} untuk reservasi #{$reservasi->id}.");
+            $this->warn("Gagal mengirim {$jenisNotifikasi} untuk reservasi #{$reservasi->id}.");
             return;
         }
 
-        $this->line("Reminder {$flag} terkirim untuk reservasi #{$reservasi->id}.");
+        NotifikasiWa::catatTerkirim($reservasi->id, $jenisNotifikasi);
+        $this->line("Reminder {$jenisNotifikasi} terkirim untuk reservasi #{$reservasi->id}.");
     }
 }

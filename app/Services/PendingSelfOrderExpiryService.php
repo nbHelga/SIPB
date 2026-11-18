@@ -16,7 +16,7 @@ class PendingSelfOrderExpiryService
         $cutoff = $this->cutoff($expiryMinutes);
 
         Pesanan::query()
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+            ->where('status', 'Pending')
             ->where('created_at', '<=', $cutoff)
             ->whereDoesntHave('reservasi')
             ->chunkById(100, function ($orders) use ($expiryMinutes) {
@@ -37,7 +37,7 @@ class PendingSelfOrderExpiryService
         $cutoff = $this->cutoff($expiryMinutes);
         $isDue = Pesanan::query()
             ->whereKey($order->id)
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+            ->where('status', 'Pending')
             ->where('created_at', '<=', $cutoff)
             ->whereDoesntHave('reservasi')
             ->exists();
@@ -47,7 +47,7 @@ class PendingSelfOrderExpiryService
         }
 
         $pendingPayments = $order->pembayaran()
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+            ->where('status', 'Pending')
             ->whereNotNull('midtrans_order_id')
             ->get();
 
@@ -111,7 +111,7 @@ class PendingSelfOrderExpiryService
         DB::transaction(function () use ($order, $cutoff) {
             $lockedOrder = Pesanan::query()
                 ->whereKey($order->id)
-                ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                ->where('status', 'Pending')
                 ->where('created_at', '<=', $cutoff)
                 ->whereDoesntHave('reservasi')
                 ->lockForUpdate()
@@ -122,7 +122,7 @@ class PendingSelfOrderExpiryService
             }
 
             $hasSuccess = $lockedOrder->pembayaran()
-                ->whereRaw("LOWER(TRIM(status)) = 'success'")
+                ->where('status', 'Success')
                 ->exists();
 
             if ($hasSuccess) {
@@ -132,7 +132,7 @@ class PendingSelfOrderExpiryService
 
             $lockedOrder->update(['status' => 'Cancelled']);
             $lockedOrder->pembayaran()
-                ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                ->where('status', 'Pending')
                 ->update(['status' => 'Failed']);
         }, 3);
     }

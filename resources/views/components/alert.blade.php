@@ -42,6 +42,11 @@
             'icon' => '✅',
             'title' => 'BERHASIL!',
         ],
+        'error-toast' => [
+            'bg' => 'bg-rose-500 text-white',
+            'icon' => '💥',
+            'title' => 'TERJADI KESALAHAN!',
+        ],
     ][$type] ?? [
         'bg' => 'bg-stone-200',
         'icon' => 'ℹ️',

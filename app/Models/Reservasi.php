@@ -19,14 +19,7 @@ class Reservasi extends Model
         'cancellation_reason',
         'dp_forfeited',
         'rejection_reason',
-        'approval_pending_customer_notif',
-        'approval_pending_admin_notif',
-        'approval_decision_customer_notif',
-        // 'dp_bayar', 
-        // 'status_notif'
-        'customer_notif',
-        'admin_notif'
-        ];
+    ];
 
     protected $casts = [
         'tanggal'    => 'date',
@@ -35,15 +28,12 @@ class Reservasi extends Model
         // yang menyebabkan strtotime() di view mengembalikan nilai tidak terduga.
         // 'jam_mulai'  => 'datetime:H:i',  // DIHAPUS
         // 'jam_selesai' => 'datetime:H:i', // DIHAPUS
-        'dp_bayar'   => 'decimal:2',
+        // 'dp_bayar'   => 'decimal:2',
         'jml_org'    => 'integer',
         // 'status_notif' => 'boolean',
         'customer_notif' => 'boolean',
         'admin_notif' => 'boolean',
         'dp_forfeited' => 'boolean',
-        'approval_pending_customer_notif' => 'boolean',
-        'approval_pending_admin_notif' => 'boolean',
-        'approval_decision_customer_notif' => 'boolean',
     ];
 
     // Status constants
@@ -80,6 +70,11 @@ class Reservasi extends Model
     public function pesanan()
     {
         return $this->belongsTo(Pesanan::class, 'id_pesanan', 'id');
+    }
+
+    public function notifikasiWa()
+    {
+        return $this->hasMany(NotifikasiWa::class, 'id_reservasi', 'id');
     }
 
     public function getStatusPesananAttribute()
@@ -123,7 +118,7 @@ class Reservasi extends Model
         }
 
         $payment = $order?->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
+            ->where('jenis', 'DP')
             ->latest('id')
             ->first();
 

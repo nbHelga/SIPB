@@ -103,17 +103,18 @@
                         </div>
                     </div>
                     
-                    <div class="flex justify-between items-center py-1">
+                    <div class="flex justify-between items-center py-1 border-b border-stone-100">
                         <span class="text-stone-500 font-medium">Jumlah Tamu</span>
                         <span class="font-bold text-stone-900 bg-stone-100 px-2.5 py-0.5 rounded-full border border-stone-300 text-xs">
                             👥 {{ $draftObj->jml_org }} Orang
                         </span>
                     </div>
                     
-                    <span class="py-3 justify-between font-medium text-stone-500 block mb-1">Keterangan Reservasi</span>
-                    <div class="rounded-lg border border-stone-200 bg-stone-50 p-3">
-                        
-                        <p class="text-sm text-stone-800 break-words whitespace-pre-line leading-relaxed">{{ trim($draftObj->keterangan ?? '') ?: 'Tidak ada keterangan tambahan.' }}</p>
+                    <div class="flex items-start justify-between py-1.5 border-b border-stone-100">
+                        <span class="text-stone-500 font-medium shrink-0">Keterangan Reservasi</span>
+                        <div class="max-h-20 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words text-right font-medium text-stone-800 text-xs lg:text-sm italic">
+                            {{ trim($draftObj->keterangan ?? '') ?: '-' }}
+                        </div>
                     </div>
                 </div>
 

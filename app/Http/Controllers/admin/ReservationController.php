@@ -79,17 +79,15 @@ class ReservationController extends Controller
         if ($status === 'forfeited') {
             $query->where('reservasi.dp_forfeited', true)
                 ->whereHas('pesanan', fn ($order) =>
-                    $order->whereRaw("LOWER(TRIM(status)) = 'cancelled'")
+                    $order->where('status', 'Cancelled')
                 );
         } elseif ($status !== '') {
             $query->whereHas('pesanan', fn ($order) =>
-                $order->whereRaw('LOWER(TRIM(status)) = ?', [$status])
+                $order->where('status', ucfirst($status))
             );
         } else {
             $query->whereHas('pesanan', fn ($order) =>
-                $order->whereRaw(
-                    "LOWER(TRIM(status)) IN ('waiting', 'reserved', 'confirmed', 'completed')"
-                )
+                $order->whereIn('status', ['Waiting', 'Reserved', 'Confirmed', 'Completed'])
             );
         }
 
@@ -156,8 +154,8 @@ class ReservationController extends Controller
                 $reservation->rejection_reason = trim((string) $data['rejection_reason']);
                 $reservation->save();
                 $order->pembayaran()
-                    ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                    ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'waiting')")
+                    ->where('jenis', 'DP')
+                    ->whereIn('status', ['Pending', 'Waiting'])
                     ->update(['status' => 'Failed']);
             }
             $order->save();
@@ -212,8 +210,8 @@ class ReservationController extends Controller
                 }
 
                 $totalDpSukses = (float) $pesanan->pembayaran()
-                    ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                    ->whereRaw("LOWER(TRIM(status)) = 'success'")
+                    ->where('jenis', 'DP')
+                    ->where('status', 'Success')
                     ->sum('nominal');
 
                 $totalPesanan = (float) $pesanan->total_harga;

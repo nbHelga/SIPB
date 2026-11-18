@@ -6,9 +6,7 @@
 @section('title', 'Cart - BigBang Eatery')
 
 @section('header_right')
-    <span class="text-sm font-bold bg-[#4A2311] text-white px-3 py-2 rounded-lg border-2 border-stone-900 shadow-[2px_2px_0_0_rgba(0,0,0,1)]">
-        Nomor Meja: {{ $nomorMeja ?? '-' }} (Lantai {{ $tables->lantai ?? '-' }})
-    </span>
+    <span class="text-sm font-bold bg-[#4A2311] px-3 py-2 ">Meja {{ $tables->nomor_meja ?? '-' }} &bull; Lt {{ $tables->lantai ?? '-' }}</span>
     <a href="{{ route('customer.selforder', ['kode' => session('selforder_code'),'tableNumber' => $tables->nomor_meja]) }}" class="text-2xl font-bold hover:text-[#8B5A2B] transition">✕</a>
 @endsection
 
@@ -21,6 +19,10 @@
 
         @if(session('error'))
             <x-alert type="error" title="Gagal" :message="session('error')" />
+        @endif
+
+        @if($errors->any())
+            <x-alert type="error" title="Gagal" :message="$errors->first()" />
         @endif
 
         <h1 class="text-2xl font-black mb-6">🛒 Keranjang Belanja</h1>
@@ -58,12 +60,12 @@
 
                                 {{-- Jika Catatan Ada --}}
                                 @if(!empty($catatan))
-                                    <div class="mt-1.5 flex items-center gap-1.5 text-xs text-stone-700 bg-amber-50 p-1.5 rounded-md border border-amber-300">
-                                        <span class="flex-shrink-0">📝</span>
-                                        <span class="italic font-medium truncate flex-1 text-stone-800">
+                                    <div class="mt-1.5 flex items-start gap-1.5 text-xs text-stone-700 bg-amber-50 p-1.5 rounded-md border border-amber-300">
+                                        <span class="flex-shrink-0 mt-0.5">📝</span>
+                                        <div class="flex-1 min-w-0 max-h-16 max-w-full overflow-y-auto overflow-x-hidden break-words whitespace-pre-line text-stone-800 font-medium italic pr-1">
                                             {{ $catatan }}
-                                        </span>
-                                        <button type="button" @click="openNote = !openNote" class="text-xs font-bold text-[#4A2311] underline hover:text-stone-900 ml-1">
+                                        </div>
+                                        <button type="button" @click="openNote = !openNote" class="shrink-0 text-xs font-bold text-[#4A2311] underline hover:text-stone-900 ml-1 mt-0.5">
                                             Edit
                                         </button>
                                     </div>

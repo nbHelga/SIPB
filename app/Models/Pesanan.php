@@ -25,11 +25,27 @@ class Pesanan extends Model
         // 'snap_token'];
 
     protected $casts = [
-        'tanggal_pesanan' => 'datetime',
+        'completed_at' => 'datetime',
         'total_harga' => 'decimal:2',
         // 'pb' => 'decimal:2',
         // 'total_bayar' => 'decimal:2',
     ];
+
+    public function setStatusAttribute($value): void
+    {
+        $normalized = ucfirst(strtolower(trim((string) $value)));
+        $validStatuses = [
+            'Waiting'    => 'Waiting',
+            'Pending'    => 'Pending',
+            'Paid'       => 'Paid',
+            'Processing' => 'Processing',
+            'Cancelled'  => 'Cancelled',
+            'Completed'  => 'Completed',
+            'Confirmed'  => 'Confirmed',
+            'Reserved'   => 'Reserved',
+        ];
+        $this->attributes['status'] = $validStatuses[$normalized] ?? $normalized;
+    }
 
     // Status constants
     const STATUS_PAID = 'paid';

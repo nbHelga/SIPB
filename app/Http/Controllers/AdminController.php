@@ -37,7 +37,7 @@ class AdminController extends Controller
 
         foreach (['selected' => $selectedDate, 'previous' => $previousDate] as $key => $date) {
             $completed = Pesanan::with(['reservasi', 'pembayaran'])
-            ->whereRaw('LOWER(status) = ?', ['completed'])
+            ->where('status', 'Completed')
             ->whereDate('completed_at', $date)
             ->get();
 
@@ -156,7 +156,7 @@ class AdminController extends Controller
             )
             ->where('pembayaran.status', 'Success')
             ->whereHas('pesanan', function ($q) use ($startOfMonth) {
-                $q->whereRaw('LOWER(status) = ?', ['completed'])
+                $q->where('status', 'Completed')
                 ->where('completed_at', '>=', $startOfMonth);
             })
             ->groupBy('date')
@@ -203,7 +203,7 @@ class AdminController extends Controller
         $paymentMethods = Pembayaran::select('metode', DB::raw('SUM(nominal) as total'))
             ->where('status', 'Success')
             ->whereHas('pesanan', function ($q) use ($startOfMonth) {
-                $q->whereRaw('LOWER(status) = ?', ['completed'])
+                $q->where('status', 'Completed')
                     ->where('completed_at', '>=', $startOfMonth);
             })
             ->groupBy('metode')
@@ -323,23 +323,23 @@ class AdminController extends Controller
             ->where(function ($query) use ($cutoff) {
                 // Self-order tunai: Pending dan dibuat selama sesi login ini.
                 $query->where(function ($cash) use ($cutoff) {
-                    $cash->whereRaw("LOWER(TRIM(pesanan.status)) = 'pending'")
+                    $cash->where('pesanan.status', 'Pending')
                         ->where('pesanan.created_at', '>=', $cutoff)
                         ->whereHas('pembayaran', function ($payment) {
-                            $payment->whereRaw("LOWER(TRIM(jenis)) = 'full'")
-                                ->whereRaw("LOWER(TRIM(metode)) = 'tunai'")
-                                ->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                            $payment->where('jenis', 'Full')
+                                ->where('metode', 'tunai')
+                                ->where('status', 'Pending');
                         });
                 })
 
                 // Self-order Midtrans: baru dihitung setelah berstatus Paid.
                 ->orWhere(function ($midtrans) use ($cutoff) {
-                    $midtrans->whereRaw("LOWER(TRIM(pesanan.status)) = 'paid'")
+                    $midtrans->where('pesanan.status', 'Paid')
                         ->where('pesanan.updated_at', '>=', $cutoff)
                         ->whereHas('pembayaran', function ($payment) {
-                            $payment->whereRaw("LOWER(TRIM(jenis)) = 'full'")
-                                ->whereRaw("LOWER(TRIM(metode)) = 'other_qris'")
-                                ->whereRaw("LOWER(TRIM(status)) = 'success'");
+                            $payment->where('jenis', 'Full')
+                                ->where('metode', 'other_qris')
+                                ->where('status', 'Success');
                         });
                 });
             })
@@ -350,7 +350,7 @@ class AdminController extends Controller
         // Reservasi baru yang menunggu approval dan reservasi yang DP-nya berhasil.
         $reservations = Reservasi::query()
             ->whereHas('pesanan', function ($order) use ($cutoff) {
-                $order->whereRaw("LOWER(TRIM(status)) IN ('waiting', 'reserved')")
+                $order->whereIn('status', ['Waiting', 'Reserved'])
                     ->where('updated_at', '>=', $cutoff);
             })
             ->pluck('id')
@@ -375,7 +375,7 @@ class AdminController extends Controller
 
         $summary = DB::table('detail_pesanan as dp')
             ->join('pesanan as p', 'p.id', '=', 'dp.id_pesanan')
-            ->whereRaw("LOWER(TRIM(p.status)) = 'completed'")
+            ->where('p.status', 'Completed')
             ->whereDate('p.completed_at', $tanggal)
             ->selectRaw('COALESCE(SUM(dp.jumlah), 0) as total_porsi')
             ->selectRaw("COALESCE(SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM reservasi r WHERE r.id_pesanan = p.id) THEN dp.jumlah ELSE 0 END), 0) as porsi_selforder")
@@ -386,7 +386,7 @@ class AdminController extends Controller
             ->join('pesanan as p', 'p.id', '=', 'dp.id_pesanan')
             ->join('menu as m', 'm.id', '=', 'dp.id_menu')
             ->leftJoin('users as u', 'u.id', '=', 'p.id_user')
-            ->whereRaw("LOWER(TRIM(p.status)) = 'completed'")
+            ->where('p.status', 'Completed')
             ->whereDate('p.completed_at', $tanggal)
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($where) use ($search) {

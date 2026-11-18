@@ -237,13 +237,11 @@ class TableController extends Controller
         $table = Meja::findOrFail($id);
         $hasActiveSelfOrder = Pesanan::query()
             ->where('id_meja', $table->id)
-            ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'paid', 'processing')")
+            ->whereIn('status', ['Pending', 'Paid', 'Processing'])
             ->exists();
         $hasActiveReservation = Reservasi::query()
             ->whereHas('detailReservasi', fn ($details) => $details->where('id_meja', $table->id))
-            ->whereHas('pesanan', fn ($orders) => $orders->whereRaw(
-                "LOWER(TRIM(status)) IN ('pending', 'waiting', 'reserved', 'confirmed', 'processing')"
-            ))
+            ->whereHas('pesanan', fn ($orders) => $orders->whereIn('status', ['Pending', 'Waiting', 'Reserved', 'Confirmed', 'Processing']))
             ->exists();
 
         if ($hasActiveSelfOrder || $hasActiveReservation) {
@@ -268,16 +266,14 @@ class TableController extends Controller
             if (!$active) {
                 $hasActiveSelfOrder = Pesanan::query()
                     ->where('id_meja', $table->id)
-                    ->whereRaw("LOWER(TRIM(status)) IN ('pending', 'paid', 'processing')")
+                    ->whereIn('status', ['Pending', 'Paid', 'Processing'])
                     ->exists();
 
                 $hasActiveReservation = Reservasi::query()
                     ->whereHas('detailReservasi', fn ($details) =>
                         $details->where('id_meja', $table->id)
                     )
-                    ->whereHas('pesanan', fn ($orders) => $orders->whereRaw(
-                        "LOWER(TRIM(status)) IN ('pending', 'reserved', 'confirmed', 'processing')"
-                    ))
+                    ->whereHas('pesanan', fn ($orders) => $orders->whereIn('status', ['Pending', 'Reserved', 'Confirmed', 'Processing']))
                     ->exists();
 
                 if ($hasActiveSelfOrder || $hasActiveReservation) {

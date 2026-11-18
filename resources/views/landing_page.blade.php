@@ -261,7 +261,7 @@
 
         <div class="font-serif italic text-stone-300 text-xs sm:text-sm md:text-base mb-6 md:mb-8">
             <p>Setiap Hari &nbsp;&nbsp;<span class="not-italic text-amber-400 font-sans block sm:inline mt-1 sm:mt-0">15.00 - 00.00 WIB</span></p>
-            <p class="mt-2 text-[11px] sm:text-xs not-italic font-sans">Reservasi mulai H+1. Rombongan lebih dari 10 orang perlu persetujuan admin.</p>
+            <p class="mt-2 text-[11px] sm:text-xs not-italic font-sans">Reservasi mulai H+1. Reservasi lebih dari 10 orang perlu persetujuan admin.</p>
         </div>
 
         {{-- Form Pengecekan Reservasi --}}

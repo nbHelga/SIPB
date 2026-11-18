@@ -156,11 +156,30 @@ class TransactionSeeder extends Seeder
                 'jam_selesai'    => $jamSelesai->format('H:i'),
                 'jml_org'        => $jmlOrg,
                 'keterangan'     => $faker->sentence(4),
-                'customer_notif' => 1,
-                'admin_notif'    => 1,
                 'created_at'     => $createdDate,
                 'updated_at'     => $createdDate,
             ]);
+
+            if ($isCompleted) {
+                DB::table('notifikasi_wa')->insert([
+                    [
+                        'id_reservasi'     => $reservasiId,
+                        'jenis_notifikasi' => 'dp_customer',
+                        'status_kirim'     => 'sent',
+                        'waktu_kirim'      => $createdDate,
+                        'created_at'       => $createdDate,
+                        'updated_at'       => $createdDate,
+                    ],
+                    [
+                        'id_reservasi'     => $reservasiId,
+                        'jenis_notifikasi' => 'dp_admin',
+                        'status_kirim'     => 'sent',
+                        'waktu_kirim'      => $createdDate,
+                        'created_at'       => $createdDate,
+                        'updated_at'       => $createdDate,
+                    ],
+                ]);
+            }
 
             // Alokasi meja ke detail_reservasi jika Completed
             if ($isCompleted) {
@@ -303,10 +322,27 @@ class TransactionSeeder extends Seeder
                 'jam_selesai'    => $jadwal['jam_selesai'],
                 'jml_org'        => $jadwal['jml_org'],
                 'keterangan'     => 'Test kapasitas rombongan ' . ($idx + 1),
-                'customer_notif' => 1,
-                'admin_notif'    => 1,
                 'created_at'     => $createdDate,
                 'updated_at'     => $createdDate,
+            ]);
+
+            DB::table('notifikasi_wa')->insert([
+                [
+                    'id_reservasi'     => $reservasiId,
+                    'jenis_notifikasi' => 'dp_customer',
+                    'status_kirim'     => 'sent',
+                    'waktu_kirim'      => $createdDate,
+                    'created_at'       => $createdDate,
+                    'updated_at'       => $createdDate,
+                ],
+                [
+                    'id_reservasi'     => $reservasiId,
+                    'jenis_notifikasi' => 'dp_admin',
+                    'status_kirim'     => 'sent',
+                    'waktu_kirim'      => $createdDate,
+                    'created_at'       => $createdDate,
+                    'updated_at'       => $createdDate,
+                ],
             ]);
 
             // DP dibayar sukses (Nominal >= 50.000, <= Total Harga)

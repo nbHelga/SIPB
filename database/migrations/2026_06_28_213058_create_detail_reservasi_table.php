@@ -9,12 +9,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('detail_reservasi', function (Blueprint $table) {
-            $table->id();    
-            $table->foreignId('id_meja')->nullable()->constrained('meja')->nullOnDelete();
-            $table->foreignId('id_reservasi')->nullable()->constrained('reservasi')->nullOnDelete();
+            $table->id();
+            $table->foreignId('id_reservasi')->constrained('reservasi', 'id')->cascadeOnDelete();
+            $table->foreignId('id_meja')->constrained('meja', 'id')->restrictOnDelete(); //mencegah delete kalau induk meja dihapus
             $table->timestamps();
-                  
-            // Opsional: Mencegah meja yang sama di-assign dua kali pada SATU reservasi yang sama
+
             $table->unique(['id_reservasi', 'id_meja']);
         });
     }

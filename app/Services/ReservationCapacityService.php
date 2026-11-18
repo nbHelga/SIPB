@@ -10,6 +10,21 @@ class ReservationCapacityService
 {
     public const GUESTS_PER_TABLE = 4;
 
+    /**
+     * Menghitung batas maksimum jumlah orang yang dapat dimasukkan customer.
+     * Standar minimal adalah 100 orang (karena rombongan besar >10 pax akan diatur manual oleh admin).
+     * Namun jika (jumlah meja aktif x 4) melebihi 100 (misal 30 meja x 4 = 120),
+     * maka batas maksimum otomatis mengikuti kapasitas meja (120).
+     */
+    public static function maxGuestsLimit(): int
+    {
+        $activeTableCount = Meja::query()
+            ->where('is_active', true)
+            ->count();
+
+        return max(100, $activeTableCount * self::GUESTS_PER_TABLE);
+    }
+
     public function check(
         string $date,
         string $start,
@@ -34,13 +49,13 @@ class ReservationCapacityService
             )
             ->whereHas('pesanan', function (Builder $orders) use ($pendingCutoff) {
                 $orders->where(function (Builder $active) use ($pendingCutoff) {
-                    $active->whereRaw("LOWER(TRIM(status)) IN ('reserved', 'confirmed', 'processing', 'waiting')")
+                    $active->whereIn('status', ['Reserved', 'Confirmed', 'Processing', 'Waiting'])
                         ->orWhere(function (Builder $pending) use ($pendingCutoff) {
-                            $pending->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                            $pending->where('status', 'Pending')
                                     ->where('created_at', '>=', $pendingCutoff)
                                     ->whereHas('pembayaran', function (Builder $payments) {
-                                        $payments->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                                            ->whereRaw("LOWER(TRIM(status)) = 'pending'");
+                                        $payments->where('jenis', 'DP')
+                                            ->where('status', 'Pending');
                                     });
                         });
                 });

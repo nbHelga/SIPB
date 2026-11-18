@@ -74,8 +74,6 @@ class ReservasiSeeder extends Seeder
                 'jam_selesai' => $reservationData['jam_selesai'],
                 'jml_org' => $reservationData['jml_org'],
                 'keterangan' => $reservationData['keterangan'] ?? null,
-                'admin_notif' => $reservationData['admin_notif'] ?? false,
-                'customer_notif' => $reservationData['customer_notif'] ?? false,
                 'created_at' => $createdAt,
                 'updated_at' => $updatedAt,
             ]);
@@ -274,7 +272,6 @@ class ReservasiSeeder extends Seeder
                     'jml_org' => $s['jml_org'],
                     'keterangan' => 'Testing Skenario ' . $s['code'],
                     'status' => $s['status'],
-                    'admin_notif' => false,
                 ],
                 [[
                     'menu' => $menu,

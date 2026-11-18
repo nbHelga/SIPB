@@ -136,7 +136,7 @@ class SelfOrderController extends Controller
 
         $pendingOrders = Pesanan::query()
             ->where('id_meja', $tables->id)
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+            ->where('status', 'Pending')
             ->whereDoesntHave('reservasi')
             ->orderByDesc('created_at')
             ->get(['id', 'kode_pesanan', 'total_harga', 'created_at']);
@@ -307,7 +307,7 @@ class SelfOrderController extends Controller
         $request->validate([
             'key'    => ['required', 'string', 'max:150'],
             'action' => ['required', 'string', 'in:update_note,update_qty'],
-            'catatan'=> ['nullable', 'string', 'max:200'],
+            'catatan'=> ['nullable', 'string', 'max:255'],
             'jumlah' => ['nullable', 'integer', 'min:1', 'max:99'],
         ]);
 
@@ -575,7 +575,7 @@ class SelfOrderController extends Controller
                 app(MidtransConfigService::class)->configure();
 
                 $pembayaran = $pesanan->pembayaran()
-                    ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+                    ->where('jenis', 'Full')
                     ->latest('id')
                     ->firstOrFail();
 
@@ -669,12 +669,12 @@ class SelfOrderController extends Controller
         ]);
 
         $fullPayment = $pesanan->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+            ->where('jenis', 'Full')
             ->latest('id')
             ->first();
 
         $latestPayment = $pesanan->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+            ->where('jenis', 'Full')
             ->whereNotNull('midtrans_order_id')
             ->latest('id')
             ->first();

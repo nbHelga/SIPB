@@ -7,6 +7,7 @@ use Midtrans\Notification;
 use App\Models\Pesanan;
 use App\Models\Pembayaran;
 use App\Models\Reservasi;
+use App\Models\NotifikasiWa;
 use App\Services\FonnteService;
 use App\Services\MidtransPaymentMethod;
 use App\Services\MidtransConfigService;
@@ -226,15 +227,15 @@ class PaymentController extends Controller
                     && now()->greaterThanOrEqualTo($reservasi->paymentDeadline())
                 ) {
                     $hasSuccessfulDp = $pesanan->pembayaran()
-                        ->whereRaw("LOWER(TRIM(jenis)) = 'dp'")
-                        ->whereRaw("LOWER(TRIM(status)) = 'success'")
+                        ->where('jenis', 'DP')
+                        ->where('status', 'Success')
                         ->exists();
 
                     if (!$hasSuccessfulDp) {
                         $pesanan->forceFill(['status' => 'Cancelled'])->save();
 
                         $pesanan->pembayaran()
-                            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                            ->where('status', 'Pending')
                             ->update(['status' => 'Failed']);
                     }
                 }
@@ -284,39 +285,28 @@ class PaymentController extends Controller
 
                     $fonnte = app(FonnteService::class);
 
-                    // Klaim flag sebelum mengirim agar callback berulang tidak mengirim duplikat.
-                    $customerClaimed = Reservasi::whereKey($reservasiToNotify->id)
-                        ->where(function ($query) {
-                            $query->whereNull('customer_notif')
-                                ->orWhere('customer_notif', false)
-                                ->orWhere('customer_notif', 0);
-                        })
-                        ->update(['customer_notif' => true]);
-
-                    if ($customerClaimed && !$fonnte->send($customer->nomor_telp, $customerMessage)) {
-                        Reservasi::whereKey($reservasiToNotify->id)
-                            ->update(['customer_notif' => false]);
-
-                        Log::warning('WhatsApp konfirmasi reservasi ke customer gagal.', [
-                            'reservasi_id' => $reservasiToNotify->id,
-                        ]);
+                    // Catat ke notifikasi_wa agar callback berulang tidak mengirim duplikat.
+                    if (!NotifikasiWa::sudahTerkirim($reservasiToNotify->id, 'dp_customer') && !empty($customer->nomor_telp)) {
+                        if ($fonnte->send($customer->nomor_telp, $customerMessage)) {
+                            NotifikasiWa::catatTerkirim($reservasiToNotify->id, 'dp_customer');
+                        } else {
+                            NotifikasiWa::catatGagal($reservasiToNotify->id, 'dp_customer');
+                            Log::warning('WhatsApp konfirmasi reservasi ke customer gagal.', [
+                                'reservasi_id' => $reservasiToNotify->id,
+                            ]);
+                        }
                     }
 
-                    $adminClaimed = Reservasi::whereKey($reservasiToNotify->id)
-                        ->where(function ($query) {
-                            $query->whereNull('admin_notif')
-                                ->orWhere('admin_notif', false)
-                                ->orWhere('admin_notif', 0);
-                        })
-                        ->update(['admin_notif' => true]);
-
-                    if ($adminClaimed && !$fonnte->send(config('services.fonnte.phone'), $adminMessage)) { // FIX SECURITY-04
-                        Reservasi::whereKey($reservasiToNotify->id)
-                            ->update(['admin_notif' => false]);
-
-                        Log::warning('WhatsApp konfirmasi reservasi ke admin gagal.', [
-                            'reservasi_id' => $reservasiToNotify->id,
-                        ]);
+                    $adminPhone = config('services.fonnte.phone'); // FIX SECURITY-04
+                    if (!NotifikasiWa::sudahTerkirim($reservasiToNotify->id, 'dp_admin') && !empty($adminPhone)) {
+                        if ($fonnte->send($adminPhone, $adminMessage)) {
+                            NotifikasiWa::catatTerkirim($reservasiToNotify->id, 'dp_admin');
+                        } else {
+                            NotifikasiWa::catatGagal($reservasiToNotify->id, 'dp_admin');
+                            Log::warning('WhatsApp konfirmasi reservasi ke admin gagal.', [
+                                'reservasi_id' => $reservasiToNotify->id,
+                            ]);
+                        }
                     }
                 }
             }
@@ -347,7 +337,7 @@ class PaymentController extends Controller
 
         foreach (
             $pesanan->pembayaran()
-                ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                ->where('status', 'Pending')
                 ->whereNotNull('midtrans_order_id')
                 ->get() as $payment
         ) {
@@ -468,7 +458,7 @@ class PaymentController extends Controller
             }
 
             $hasSuccessfulPayment = $lockedOrder->pembayaran()
-                ->whereRaw("LOWER(TRIM(status)) = 'success'")
+                ->where('status', 'Success')
                 ->exists();
 
             if ($hasSuccessfulPayment) {
@@ -478,7 +468,7 @@ class PaymentController extends Controller
             $lockedOrder->update(['status' => 'Cancelled']);
 
             $lockedOrder->pembayaran()
-                ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                ->where('status', 'Pending')
                 ->update(['status' => 'Failed']);
         }, 3);
 
@@ -523,7 +513,7 @@ class PaymentController extends Controller
         $pesanan->refresh();
 
         $latest = $pesanan->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+            ->where('jenis', 'Full')
             ->whereNotNull('midtrans_order_id')
             ->latest('id')
             ->first();
@@ -574,7 +564,7 @@ class PaymentController extends Controller
                 }
 
                 $latestPayment = $lockedOrder->pembayaran()
-                    ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+                    ->where('jenis', 'Full')
                     // ->whereRaw("LOWER(TRIM(metode)) = 'midtrans'")
                     ->whereNotNull('midtrans_order_id')
                     ->latest('id')

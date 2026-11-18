@@ -17,8 +17,7 @@ class CustomerController extends Controller
     public function landing()
     {
         $menuTerbaru = Menu::where('is_bestseller', true)->latest()->take(3)->get();
-        $maxGuests = Meja::where('is_active', true)->count()
-            * ReservationCapacityService::GUESTS_PER_TABLE;
+        $maxGuests = ReservationCapacityService::maxGuestsLimit();
         $menus = Menu::where('status', 'open')
              ->orWhere('is_reservable', true)
              ->orderByDesc('is_bestseller')
@@ -30,15 +29,17 @@ class CustomerController extends Controller
     public function cekKetersediaan(Request $request, ReservationCapacityService $capacityService)
     {
         $minimumDate = Carbon::now('Asia/Jakarta')->addDay()->toDateString();
+        $maxGuests = ReservationCapacityService::maxGuestsLimit();
 
         $validator = Validator::make($request->all(), [
             'tanggal' => ['required', 'date_format:Y-m-d', 'after_or_equal:' . $minimumDate],
             'jam_mulai' => ['required', 'date_format:H:i'],
             'jam_selesai' => ['required', 'date_format:H:i', 'after:jam_mulai'],
-            'jml_org' => 'required|integer|min:1',
+            'jml_org' => ['required', 'integer', 'min:1', 'max:' . $maxGuests],
         ], [
             'tanggal.after_or_equal' => 'Reservasi hanya dapat dibuat mulai besok (H+1).',
             'jam_selesai.after' => 'Jam selesai harus lebih akhir dari jam mulai.',
+            'jml_org.max' => 'Jumlah orang maksimal adalah ' . $maxGuests . ' orang.',
         ]);
 
         if ($validator->fails()) {

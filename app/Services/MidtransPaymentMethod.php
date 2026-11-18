@@ -52,9 +52,9 @@ class MidtransPaymentMethod
     public function syncSelfOrder(Pesanan $pesanan): void
     {
         $payment = $pesanan->pembayaran()
-            ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+            ->where('jenis', 'Full')
             ->whereNotNull('midtrans_order_id')
-            ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+            ->where('status', 'Pending')
             ->latest('id')
             ->first();
 
@@ -99,7 +99,7 @@ class MidtransPaymentMethod
         if (!$success && !$failed) {
             if ($method !== null) {
                 Pembayaran::whereKey($payment->id)
-                    ->whereRaw("LOWER(TRIM(status)) = 'pending'")
+                    ->where('status', 'Pending')
                     ->update(['metode' => $method]);
             }
 
@@ -144,7 +144,7 @@ class MidtransPaymentMethod
             ]);
 
             $latestPaymentId = $lockedOrder->pembayaran()
-                ->whereRaw("LOWER(TRIM(jenis)) = 'full'")
+                ->where('jenis', 'Full')
                 ->whereNotNull('midtrans_order_id')
                 ->latest('id')
                 ->value('id');

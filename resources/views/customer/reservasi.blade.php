@@ -47,7 +47,7 @@
 
                     <!-- No WA -->
                     <div>
-                        <label class="block font-bold mb-1">Nomor WhatsApp <span class="text-stone-400 font-normal text-sm">(Jika Ada)</span></label>
+                        <label class="block font-bold mb-1">Nomor Telepon <span class="text-stone-400 font-normal text-sm">(WhatsApp Jika Ada)</span></label>
                         <input type="text" name="nomor_telp" value="{{ old('nomor_telp', $prefill['nomor_telp'] ?? '') }}" required placeholder="08xxxxxxxxxx"
                                class="w-full border-2 @error('nomor_telp') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">
                         @error('nomor_telp')
@@ -100,7 +100,7 @@
                     <!-- Jumlah Orang -->
                     <div>
                         <label class="block font-bold mb-1">Jumlah Orang <span class="text-red-500">*</span></label>
-                        <input type="number" name="jml_org" required min="1" 
+                        <input type="number" name="jml_org" required min="1" max="{{ $maxGuests ?? 100 }}"
                                value="{{ old('jml_org', $prefill['jml_org'] ?? '') }}"
                                class="w-full border-2 @error('jml_org') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">
                         @error('jml_org')
