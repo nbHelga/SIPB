@@ -146,6 +146,7 @@
                         ['route' => 'admin.meja', 'label' => 'Alokasi Meja', 'icon' => '🪑', 'access' => ['admin', 'kasir']],
                         ['route' => 'admin.reservasi', 'label' => 'Reservasi', 'icon' => '📅', 'access' => ['admin', 'kasir']],
                         ['route' => 'admin.rekapan', 'label' => 'Rekapan', 'icon' => '📋', 'access' => ['admin', 'kasir']],
+                        ['route' => 'admin.settings', 'label' => 'Pengaturan Sistem', 'icon' => '⚙️', 'access' => ['admin']],
                     ];
                 @endphp
 
@@ -327,7 +328,7 @@
         });
 
         pollAdminNotifications();
-        window.setInterval(pollAdminNotifications, 10000);
+        window.setInterval(pollAdminNotifications, {{ app(\App\Services\SystemSettings::class)->get('admin_notification_poll_seconds') * 1000 }});
     })();
     </script>
 </body>

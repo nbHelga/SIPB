@@ -103,6 +103,7 @@
                         <input type="number" name="jml_org" required min="1" max="{{ $maxGuests ?? 100 }}"
                                value="{{ old('jml_org', $prefill['jml_org'] ?? '') }}"
                                class="w-full border-2 @error('jml_org') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">
+                        <p class="mt-1 text-xs text-stone-500">Minimal 1 orang, maksimal {{ $maxGuests ?? 100 }} orang per reservasi.</p>
                         @error('jml_org')
                             <p class="text-red-500 text-xs mt-1 font-bold">⚠️ {{ $message }}</p>
                         @enderror
@@ -122,12 +123,12 @@
 
                 <!-- Pilih Menu (Popup) -->
                 <div>
-                    <label class="block font-bold mb-3">Pilih Menu (Wajib Minimal Rp 50.000)</label>
+                    <label class="block font-bold mb-3">Pilih Menu (Wajib Minimal Rp {{ number_format(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), 0, ',', '.') }})</label>
                     <button type="button" onclick="toggleModal('multiMenuModal', true)"
                             class="px-4 py-2 bg-amber-100 text-stone-700 font-bold rounded-lg border-2 border-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] hover:bg-amber-200 transition">
                         + Tambah Menu
                     </button>
-                    <p class="text-xs text-stone-500 mt-2">💡 Pilih menu makanan & minuman yang ingin disiapkan sebelum kedatangan Anda (minimal pre-order Rp 50.000).</p>
+                    <p class="text-xs text-stone-500 mt-2">💡 Pilih menu makanan & minuman yang ingin disiapkan sebelum kedatangan Anda (minimal pre-order Rp {{ number_format(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), 0, ',', '.') }}).</p>
                     
                     @error('menu')
                         <p class="text-red-500 text-xs mt-2 font-bold">⚠️ {{ $message }}</p>

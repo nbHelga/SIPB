@@ -70,7 +70,7 @@ class CustomerController extends Controller
         //     ], 422);
         // }
 
-        $largeReservation = $jumlahOrang > 10;
+        $largeReservation = $jumlahOrang > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests');
         $capacity = $largeReservation ? ['available' => true] : $capacityService->check($tanggal, $jamMulai, $jamSelesai, $jumlahOrang);
 
         if (!$capacity['available']) {

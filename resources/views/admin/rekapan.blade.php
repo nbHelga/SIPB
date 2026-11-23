@@ -7,7 +7,7 @@
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
             <h1 class="text-2xl font-black text-stone-900">Rekapan Menu Terjual</h1>
-            <p class="mt-1 text-sm text-stone-500">Pesanan selesai pada {{ \Carbon\Carbon::parse($tanggal)->format('d/m/Y') }}</p>
+            <p class="mt-1 text-sm text-stone-500">Pesanan selesai pada {{ \Carbon\Carbon::parse($tanggal)->locale('id')->translatedFormat('d M Y') }}</p>
         </div>
         <a class="rounded-lg border-2 border-stone-900 bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-800"
            href="{{ route('admin.cetak', ['tanggal' => $tanggal]) }}" target="_blank" rel="noopener">

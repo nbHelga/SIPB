@@ -9,6 +9,7 @@ use App\Http\Controllers\admin\MenuController;
 use App\Http\Controllers\admin\ReservationController as AdminReservationController;
 use App\Http\Controllers\admin\TableController;
 use App\Http\Controllers\admin\UserController;
+use App\Http\Controllers\admin\SystemSettingController;
 use App\Http\Controllers\customer\SelfOrderController;
 use App\Http\Controllers\customer\BookingController;
 use App\Http\Controllers\customer\PaymentController;
@@ -44,6 +45,7 @@ Route::prefix('customer')->name('customer.')->group(function () {
     Route::get('/order-status/{kode_pesanan}', [SelfOrderController::class, 'orderStatus'])->name('order.status');
     Route::post('/payment/ulangi/{kode_pesanan}', [PaymentController::class, 'ulangiPembayaran'])->name('payment.ulangi');
     Route::post('/payment/batalkan/{kode_pesanan}', [PaymentController::class, 'batalkanPesanan'])->name('payment.batal');
+    Route::post('/payment/ubah-metode/{kode_pesanan}', [PaymentController::class, 'changeMethod'])->name('payment.change-method');
     
     // Reservasi
     Route::get('/reservasi', [BookingController::class, 'reservasiForm'])->name('reservasi.form');
@@ -120,11 +122,14 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->name('selforder.nota');
 
     Route::get('/menu/{id?}', [MenuController::class, 'menu'])->name('menu');
+    Route::get('/menu-name-check', [MenuController::class, 'checkName'])->middleware('admin')->name('menu.name_check');
     Route::get('/menu/{id}/json', [MenuController::class, 'menuJson'])->name('menu.json');
     Route::patch('/menu/{id}/availability', [MenuController::class, 'menuAvailability'])
     ->name('menu.availability');
 
     Route::middleware('admin')->group(function () {
+        Route::get('/settings', [SystemSettingController::class, 'edit'])->name('settings');
+        Route::put('/settings', [SystemSettingController::class, 'update'])->name('settings.update');
         // Menu (hanya admin)
         Route::post('/menu/store', [MenuController::class, 'menuStore'])->name('menu.store');
         Route::put('/menu/{id}/update', [MenuController::class, 'menuUpdate'])->name('menu.update');

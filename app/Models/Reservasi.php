@@ -95,7 +95,7 @@ class Reservasi extends Model
      */
     public function getPaymentWindowMinutes(): int
     {
-        return max(1, (int) config('services.reservation.payment_window_minutes', 60)); // #live sesuaikan nilai default jika tanpa env
+        return app(\App\Services\SystemSettings::class)->get('reservation_dp_minutes');
     }
 
     /**
@@ -109,7 +109,7 @@ class Reservasi extends Model
     public function paymentDeadline(): \Carbon\Carbon
     {
         $order = $this->pesanan;
-        $isLargeReservation = (int) $this->jml_org > 10;
+        $isLargeReservation = (int) $this->jml_org > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests');
         $orderStatus = strtolower(trim((string) ($order?->status ?? '')));
 
         // Reservasi skala besar yang masih menunggu persetujuan tidak memiliki batas waktu pembayaran

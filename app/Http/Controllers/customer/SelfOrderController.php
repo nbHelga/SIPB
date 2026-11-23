@@ -52,8 +52,9 @@ class SelfOrderController extends Controller
 
     
 
-    public function selfOrder(Request $request)
+    public function selfOrder(Request $request, PendingSelfOrderExpiryService $expiryService)
     {
+        $expiryService->expireDue();
         // 1. Ambil nomor meja dari URL atau Session
         $nomorMeja = $request->query('tableNumber')
             ?? $request->query('nomor_meja')
@@ -597,7 +598,7 @@ class SelfOrderController extends Controller
                     'custom_expiry' => [
                         'start_time' => now()->format('Y-m-d H:i:s O'),
                         'unit' => 'minute',
-                        'duration' => 15,
+                        'duration' => app(\App\Services\SystemSettings::class)->get('selforder_qris_minutes'),
                     ],
                     'callbacks' => [
                         'finish' => route('customer.order.detail', [
@@ -683,8 +684,11 @@ class SelfOrderController extends Controller
         $statusPembayaran = strtolower(trim((string) ($fullPayment?->status ?? '')));
         $metodePembayaran = strtolower(trim((string) ($fullPayment?->metode ?? '')));
         $isCashPayment = $metodePembayaran === 'tunai';
+        $initialPaymentMethod = strtolower(trim((string) $pesanan->pembayaran()
+            ->where('jenis', 'Full')->oldest('id')->value('metode')));
+        $windowMinutes = app(\App\Services\SystemSettings::class)->get($initialPaymentMethod === 'tunai' ? 'selforder_cash_minutes' : 'selforder_qris_minutes');
         $orderExpiresAt = $pesanan->created_at
-            ? $pesanan->created_at->copy()->addMinutes(max(1, (int) config('services.selforder.payment_window_minutes', 30)))->timestamp * 1000
+            ? $pesanan->created_at->copy()->addMinutes($windowMinutes)->timestamp * 1000
             : null;
 
         $snapToken = strtolower(trim((string) ($latestPayment?->status ?? ''))) === 'pending'

@@ -129,6 +129,7 @@
                     required maxlength="50"
                     class="w-full rounded-lg border-2 border-stone-300 px-4 py-3 @error('username') border-red-500 @enderror"
                 >
+                <p class="mt-1 text-xs text-stone-500">4–30 karakter; unik. Saat membuat akun, username hanya boleh berisi huruf, angka, tanda hubung, dan garis bawah.</p>
                 @error('username')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
@@ -146,6 +147,7 @@
                 <p id="passwordHint" class="mt-1 hidden text-xs text-stone-500">
                     Kosongkan jika tidak ingin mengubah password.
                 </p>
+                <p class="mt-1 text-xs text-stone-500">Minimal 6 karakter. Saat mengubah akun, kosongkan bila password tidak diganti.</p>
                 @error('password')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 

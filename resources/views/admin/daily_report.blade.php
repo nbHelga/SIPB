@@ -8,7 +8,7 @@
             ? \Illuminate\Support\Carbon::instance($value)
             : \Illuminate\Support\Carbon::parse($value, config('app.timezone', 'UTC'));
 
-        return $date->setTimezone('Asia/Jakarta')->format('d/m/Y H:i');
+        return $date->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('H.i, d M Y');
     };
 @endphp
 
@@ -111,7 +111,7 @@
         <div class="info-row">
             <span class="info-label">Tgl. Laporan</span>
             <span class="info-colon">:</span>
-            <span class="info-value">{{ \Carbon\Carbon::parse($tanggal)->format('d/m/Y') }}</span>
+            <span class="info-value">{{ \Carbon\Carbon::parse($tanggal)->locale('id')->translatedFormat('d M Y') }}</span>
         </div>
         <div class="info-row">
             <span class="info-label">Waktu Cetak</span>

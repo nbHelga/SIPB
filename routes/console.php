@@ -13,7 +13,7 @@ Schedule::command('reservation:expire-pending')
     ->withoutOverlapping();
 
 Schedule::command('reservasi:send-notifs')
-    ->dailyAt('05:20')
+    ->dailyAt('21:46')
     ->timezone('Asia/Jakarta')
     ->withoutOverlapping();
     

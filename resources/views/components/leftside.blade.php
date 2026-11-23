@@ -17,7 +17,7 @@
                 : ($item->customer->nama ?? 'Unknown Customer'); 
                 
             $namaLabel = $type === 'reservasi'
-                ? ($item->jam_mulai ? \Carbon\Carbon::parse($item->tanggal)->format('d M Y') . ' (' . \Carbon\Carbon::parse($item->jam_mulai)->format('H:i') . ')' : '-')
+                ? ($item->jam_mulai ? \Carbon\Carbon::parse($item->tanggal)->locale('id')->translatedFormat('d M Y') . ' (' . \Carbon\Carbon::parse($item->jam_mulai)->format('H.i') . ')' : '-')
                 : 'Pesanan #' . $item->id;
 
             $statusRaw = $type === 'pesanan' ? ($item->status ?? '') : ($item->pesanan->status ?? '');

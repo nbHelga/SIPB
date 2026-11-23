@@ -49,7 +49,7 @@
             ? \Illuminate\Support\Carbon::instance($value)
             : \Illuminate\Support\Carbon::parse($value, config('app.timezone', 'UTC'));
 
-        return $date->setTimezone('Asia/Jakarta')->format('d/m/Y H:i') . ' WIB';
+        return $date->setTimezone('Asia/Jakarta')->locale('id')->translatedFormat('H.i, d M Y') . ' WIB';
     };
 @endphp
 
@@ -148,8 +148,8 @@
                 <td>Jadwal</td>
                 <td>:</td>
                 <td class="text-right">
-                    {{ \Illuminate\Support\Carbon::parse($reservasi->tanggal)->format('d/m/Y') }}
-                    {{ \Illuminate\Support\Carbon::parse($reservasi->jam_mulai)->format('H:i') }} WIB
+                    {{ \Illuminate\Support\Carbon::parse($reservasi->tanggal)->locale('id')->translatedFormat('d M Y') }}
+                    {{ \Illuminate\Support\Carbon::parse($reservasi->jam_mulai)->format('H.i') }} WIB
                 </td>
             </tr>
         @endif

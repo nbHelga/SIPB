@@ -157,7 +157,7 @@
                             <a href="{{ route('customer.order.detail', $pendingOrder->kode_pesanan) }}" class="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-amber-50">
                                 <span class="min-w-0">
                                     <span class="block truncate font-bold text-stone-900">{{ $pendingOrder->kode_pesanan }}</span>
-                                    <span class="text-xs text-stone-500">{{ $pendingOrder->created_at->copy()->timezone('Asia/Jakarta')->format('d M Y, H:i') }} WIB</span>
+                                    <span class="text-xs text-stone-500">{{ $pendingOrder->created_at->copy()->timezone('Asia/Jakarta')->locale('id')->translatedFormat('H.i, d M Y') }} WIB</span>
                                 </span>
                                 <span class="shrink-0 font-black text-[#4A2311]">Rp {{ number_format($pendingOrder->total_harga, 0, ',', '.') }}</span>
                             </a>

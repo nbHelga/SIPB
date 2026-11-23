@@ -12,24 +12,27 @@ class PendingSelfOrderExpiryService
 {
     public function expireDue(): void
     {
-        $expiryMinutes = $this->expiryMinutes();
-        $cutoff = $this->cutoff($expiryMinutes);
+        $candidateWindow = min(
+            app(SystemSettings::class)->get('selforder_cash_minutes'),
+            app(SystemSettings::class)->get('selforder_qris_minutes')
+        );
+        $cutoff = $this->cutoff($candidateWindow);
 
         Pesanan::query()
             ->where('status', 'Pending')
             ->where('created_at', '<=', $cutoff)
             ->whereDoesntHave('reservasi')
-            ->chunkById(100, function ($orders) use ($expiryMinutes) {
+            ->chunkById(100, function ($orders) {
                 foreach ($orders as $order) {
                     /** @var Pesanan $order */
-                    $this->expireDueOrder($order, $expiryMinutes);
+                    $this->expireDueOrder($order, $this->expiryMinutes($order));
                 }
             });
     }
 
     public function expireIfDue(Pesanan $order): void
     {
-        $this->expireDueOrder($order, $this->expiryMinutes());
+        $this->expireDueOrder($order, $this->expiryMinutes($order));
     }
 
     private function expireDueOrder(Pesanan $order, int $expiryMinutes): void
@@ -137,9 +140,13 @@ class PendingSelfOrderExpiryService
         }, 3);
     }
 
-    private function expiryMinutes(): int
+    private function expiryMinutes(Pesanan $order): int
     {
-        return max(1, (int) config('services.selforder.payment_window_minutes', 120));
+        $payment = $order->pembayaran()->where('jenis', 'Full')->oldest('id')->first();
+        $key = strtolower(trim((string) ($payment?->metode ?? 'tunai'))) === 'tunai'
+            ? 'selforder_cash_minutes'
+            : 'selforder_qris_minutes';
+        return app(SystemSettings::class)->get($key);
     }
 
     private function cutoff(int $expiryMinutes)

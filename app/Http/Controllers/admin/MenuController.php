@@ -40,6 +40,7 @@ class MenuController extends Controller
 
     private function validateMenu(Request $request): array
     {
+        $request->merge(['harga' => preg_replace('/\D/', '', (string) $request->input('harga'))]);
         // Normalisasi checkbox sebelum validasi.
         $request->merge([
             'status' => $request->input('status') === 'open' ? 'open' : 'close',
@@ -49,7 +50,11 @@ class MenuController extends Controller
 
         return $request->validate([
             'gambar' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
-            'nama' => ['required', 'string', 'min:3', 'max:100'],
+            'nama' => ['required', 'string', 'min:3', 'max:100', function ($attribute, $value, $fail) use ($request) {
+                $query = Menu::query()->whereRaw('LOWER(nama) = ?', [mb_strtolower(trim((string) $value))]);
+                if ($request->route('id')) $query->whereKeyNot($request->route('id'));
+                if ($query->exists()) $fail('Nama menu ini sudah digunakan, silakan gunakan nama lain.');
+            }],
             'harga' => ['required', 'numeric', 'min:0', 'max:10000000'],
             'kategori' => ['required', 'string', 'max:50'],
             'deskripsi' => ['nullable', 'string', 'max:1000'],
@@ -71,6 +76,14 @@ class MenuController extends Controller
             'kategori.max' => 'Kategori maksimal 50 karakter.',
             'deskripsi.max' => 'Deskripsi maksimal 1000 karakter.',
         ]);
+    }
+
+    public function checkName(Request $request)
+    {
+        $name = trim((string) $request->query('nama', ''));
+        $query = Menu::query()->whereRaw('LOWER(nama) = ?', [mb_strtolower($name)]);
+        if ($request->filled('id')) $query->whereKeyNot($request->query('id'));
+        return response()->json(['available' => $name === '' || !$query->exists()]);
     }
 
     public function menuStore(Request $request)

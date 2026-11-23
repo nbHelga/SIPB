@@ -95,7 +95,7 @@
                         <span class="text-stone-500 font-medium">Waktu / Sesi</span>
                         <div class="text-right">
                             <span class="font-bold text-stone-900">
-                                {{ \Carbon\Carbon::parse($draftObj->jam_mulai)->format('H:i') }} - {{ \Carbon\Carbon::parse($draftObj->jam_selesai)->format('H:i') }} WIB
+                                {{ \Carbon\Carbon::parse($draftObj->jam_mulai)->format('H.i') }} - {{ \Carbon\Carbon::parse($draftObj->jam_selesai)->format('H.i') }} WIB
                             </span>
                             <span class="text-[11px] text-stone-400 block">
                                 ({{ \Carbon\Carbon::parse($draftObj->tanggal)->translatedFormat('l') }})
@@ -112,13 +112,13 @@
                     
                     <div class="flex items-start justify-between py-1.5 border-b border-stone-100">
                         <span class="text-stone-500 font-medium shrink-0">Keterangan Reservasi</span>
-                        <div class="max-h-20 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words text-right font-medium text-stone-800 text-xs lg:text-sm italic">
+                        <div class="max-h-20 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words text-left font-medium text-stone-800 text-xs lg:text-sm italic">
                             {{ trim($draftObj->keterangan ?? '') ?: '-' }}
                         </div>
                     </div>
                 </div>
 
-                @if((int) ($draftObj->jml_org ?? 0) > 10)
+                @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                     <div class="rounded-lg border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-950">
                         Reservasi lebih dari 10 orang perlu persetujuan admin. Masukkan nominal DP di bawah; pembayaran baru dimulai setelah reservasi disetujui.
                     </div>
@@ -127,17 +127,17 @@
                 <!-- Card DP Info (Kompak) -->
                 <div class="bg-amber-50 border-2 border-stone-900 rounded-xl p-3.5 text-center shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
                     <p class="text-[11px] font-black text-stone-600 uppercase tracking-wider mb-0.5">
-                        @if((int) ($draftObj->jml_org ?? 0) > 10)
+                        @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                             Uang Muka Setelah Persetujuan Admin
                         @else
                             Uang Muka (DP) Wajib Minimal
                         @endif
                     </p>
                     <p class="text-2xl lg:text-3xl font-black text-[#4A2311]">
-                        Rp {{ number_format(50000, 0, ',', '.') }}
+                        Rp {{ number_format(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), 0, ',', '.') }}
                     </p>
                     <p class="text-[11px] text-stone-500 mt-1">
-                        @if((int) ($draftObj->jml_org ?? 0) > 10)
+                        @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                             *Pembayaran DP dimulai setelah reservasi disetujui.
                         @else
                             *Sisa tagihan menu dibayarkan langsung di kasir restoran.
@@ -161,12 +161,13 @@
                             <span class="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-600">Rp</span>
                             <input
                                 id="nominal_dp"
-                                type="number"
+                                type="text"
+                                inputmode="numeric"
+                                data-thousands
                                 name="nominal_dp"
-                                min="50000"
+                                min="{{ app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') }}"
                                 max="{{ (int) ($totalHargaMenu ?? 0) }}"
-                                value="{{ old('nominal_dp', 50000) }}"
-                                step="1000"
+                                value="{{ old('nominal_dp', app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp')) }}"
                                 class="w-full pl-10 pr-4 py-3 border-2 border-stone-300 rounded-lg text-sm font-black text-[#4A2311] focus:border-[#4A2311] focus:outline-none"
                                 required
                             >
@@ -181,7 +182,7 @@
                         <span class="font-bold block mb-1">📌 Sebelum melanjutkan, pastikan:</span>
                         <ul class="list-disc space-y-0.5 pl-4 text-stone-700">
                             <li>Menu pre-order dan jumlahnya sudah benar.</li>
-                            @if((int) ($draftObj->jml_org ?? 0) > 10)
+                            @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                                 <li>Nominal DP dicatat sekarang, pembayaran dimulai setelah disetujui admin.</li>
                             @else
                                 <li>DP minimal Rp 50.000 dan tidak melebihi total pesanan.</li>
@@ -195,7 +196,7 @@
                         class="w-full py-3.5 bg-[#4A2311] text-white font-black rounded-xl border-2 border-stone-900 shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B] transition-all disabled:cursor-not-allowed disabled:bg-stone-500 disabled:opacity-50"
                         @disabled($hasMenuChanges)
                     >
-                        @if((int) ($draftObj->jml_org ?? 0) > 10)
+                            @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                             Kirim permintaan reservasi
                         @else
                             💳 Bayar Sekarang via Midtrans
@@ -266,7 +267,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.querySelector('form[action="{{ route('customer.reservasi.create_transaction') }}"]');
     const btnSubmit = form ? form.querySelector('button[type="submit"]') : null;
-    const requiresApproval = @json((int) ($draftObj->jml_org ?? 0) > 10);
+    const requiresApproval = @json((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'));
     
     if(form && btnSubmit) {
         form.addEventListener('submit', function() {

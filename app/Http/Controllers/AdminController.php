@@ -289,7 +289,7 @@ class AdminController extends Controller
 
         for ($i = $days - 1; $i >= 0; $i--) {
             $date = now()->subDays($i);
-            $chartLabels[] = $date->format('d/m');
+            $chartLabels[] = $date->locale('id')->translatedFormat('d M');
 
             $sales = Pesanan::where('status', 'completed')
                 ->whereDate('created_at', $date)

@@ -49,9 +49,9 @@ class TableController extends Controller
                     'customer_nama' => $r->customer->nama ?? 'Guest',
                     'jml_org' => $r->jml_org ?? 0,
                     'tanggal' => Carbon::parse($r->tanggal)->format('Y-m-d'),
-                    'tgl_formatted' => Carbon::parse($r->tanggal)->format('d/m'),
-                    'jam_mulai' => $startCarbon->format('H:i'),
-                    'jam_selesai' => $endCarbon->format('H:i'),
+                    'tgl_formatted' => Carbon::parse($r->tanggal)->locale('id')->translatedFormat('d M'),
+                    'jam_mulai' => $startCarbon->format('H.i'),
+                    'jam_selesai' => $endCarbon->format('H.i'),
                     // Kalkulasi Menit dari Pukul 00:00 (Dijamin akurat)
                     'start_minutes' => ($startCarbon->hour * 60) + $startCarbon->minute,
                     'end_minutes' => ($endCarbon->hour * 60) + $endCarbon->minute,
@@ -184,7 +184,7 @@ class TableController extends Controller
                 'id_reservasi' => $reservasiHariIni->id,
                 'nama_customer' => $reservasiHariIni->customer->nama ?? null,
                 'jumlah_orang' => $reservasiHariIni->jml_org ?? null,
-                'jam' => Carbon::parse($reservasiHariIni->jam_mulai)->format('H:i'),
+                'jam' => Carbon::parse($reservasiHariIni->jam_mulai)->format('H.i'),
                 'menu_dipesan' => $menuDipesan,
             ];
         } else {

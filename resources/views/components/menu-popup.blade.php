@@ -3,7 +3,7 @@
     'isEdit' => false,
     'pesananTerkait' => null,
     'actionUrl' => '',
-    'minimumTotal' => 50000,
+    'minimumTotal' => app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'),
 ])
 
 @php
@@ -13,7 +13,7 @@
     $totalDisplayId = $isEdit ? 'editModalTotalDisplay' : 'modalTotalDisplay';
     $btnId = $isEdit ? 'btnConfirmEditMenu' : 'btnConfirmMenu';
     $warningId = $isEdit ? 'editMinOrderWarning' : 'minOrderWarning';
-    $minimumTotal = max(50000, (int) $minimumTotal);
+    $minimumTotal = max(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), (int) $minimumTotal);
     $minimumWarning = $isEdit
         ? 'Total menu tidak boleh kurang dari DP yang dibayar: Rp ' . number_format($minimumTotal, 0, ',', '.') . '.'
         : 'Minimal pemesanan menu adalah Rp 50.000.';
@@ -304,7 +304,7 @@ function calculateModalTotal(containerId, displayId, btnId, warningId) {
     const warning = document.getElementById(warningId);
     const button = document.getElementById(btnId);
 
-    const minimumTotal = Number(container.dataset.minimumTotal) || 50000;
+    const minimumTotal = Number(container.dataset.minimumTotal) || {{ app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') }};
     const meetsMinimum = total >= minimumTotal;
     const notesCheck = checkAllMenuNotesValid(containerId);
     const allValid = meetsMinimum && notesCheck.valid;

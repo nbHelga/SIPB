@@ -180,6 +180,7 @@
                     Nama <span class="text-red-600">*</span>
                 </label>
                 <input
+                    id="menuName"
                     name="nama"
                     value="{{ old('nama') }}"
                     required minlength="3" maxlength="100"
@@ -187,6 +188,8 @@
                     @disabled($isKasir)
                 >
                 @error('nama') <p class="mt-1 text-sm font-semibold text-red-600">{{ $message }}</p> @enderror
+                <p id="menuNameAvailability" class="mt-1 hidden text-sm font-semibold text-red-600" aria-live="polite"></p>
+                <p class="mt-1 text-xs text-stone-500">Minimal 3 dan maksimal 100 karakter; nama harus unik.</p>
             </div>
 
             <div>
@@ -194,10 +197,12 @@
                     Harga <span class="text-red-600">*</span>
                 </label>
                 <input
-                    type="number"
+                    type="text"
+                    inputmode="numeric"
+                    data-thousands
                     name="harga"
                     value="{{ old('harga') }}"
-                    required min="0" max="10000000" step="0.01"
+                    required
                     class="w-full rounded-lg border-2 border-stone-300 px-3 py-2 @error('harga') border-red-500 @enderror disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-500 disabled:opacity-100"
                     @disabled($isKasir)
                 >
@@ -342,6 +347,30 @@ const menuStoreUrl = @json(route('admin.menu.store'));
 const menuJsonUrlTemplate = @json(route('admin.menu.json', ['id' => '__ID__']));
 const menuUpdateUrlTemplate = @json(route('admin.menu.update', ['id' => '__ID__']));
 const isKasir = document.getElementById('menuForm').dataset.isKasir === '1';
+const menuName = document.getElementById('menuName');
+const menuNameAvailability = document.getElementById('menuNameAvailability');
+let menuNameCheckTimer;
+let duplicateMenuName = false;
+async function checkMenuName() {
+    const name = menuName.value.trim();
+    if (!name) return;
+    const currentId = document.getElementById('menuFormMode').value === 'edit'
+        ? document.getElementById('menuForm').action.match(/menu\/(\d+)\/update/)?.[1] : '';
+    const url = new URL(@json(route('admin.menu.name_check')), window.location.origin);
+    url.searchParams.set('nama', name);
+    if (currentId) url.searchParams.set('id', currentId);
+    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+    const result = await response.json();
+    duplicateMenuName = !result.available;
+    menuNameAvailability.textContent = duplicateMenuName ? 'Nama menu ini sudah digunakan, silakan gunakan nama lain.' : '';
+    menuNameAvailability.classList.toggle('hidden', !duplicateMenuName);
+    menuName.setCustomValidity(duplicateMenuName ? 'Nama menu ini sudah digunakan.' : '');
+}
+menuName.addEventListener('input', () => {
+    clearTimeout(menuNameCheckTimer);
+    menuNameCheckTimer = setTimeout(checkMenuName, 300);
+});
+menuName.addEventListener('blur', checkMenuName);
 const availabilityUrlTemplate =
     document.getElementById('menuForm').dataset.availabilityUrlTemplate;
 

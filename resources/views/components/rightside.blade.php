@@ -29,7 +29,7 @@
                     </div>
                     <div class="flex justify-between">
                         <span class="text-stone-500">DIBUAT</span>
-                        <span class="text-right font-bold">{{ $item->created_at ? $item->created_at->copy()->timezone('Asia/Jakarta')->format('d M Y H:i') . ' WIB' : '-' }}</span>
+                        <span class="text-right font-bold">{{ $item->created_at ? $item->created_at->copy()->timezone('Asia/Jakarta')->locale('id')->translatedFormat('H.i, d M Y') . ' WIB' : '-' }}</span>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-stone-500">STATUS</span>
@@ -109,7 +109,7 @@
                     </div>
                     <div class="flex justify-between">
                         <span class="text-stone-500">DIBUAT</span>
-                        <span class="text-right font-bold">{{ optional($item->pesanan)->created_at ? $item->pesanan->created_at->copy()->timezone('Asia/Jakarta')->format('d M Y H:i') . ' WIB' : '-' }}</span>
+                        <span class="text-right font-bold">{{ optional($item->pesanan)->created_at ? $item->pesanan->created_at->copy()->timezone('Asia/Jakarta')->locale('id')->translatedFormat('H.i, d M Y') . ' WIB' : '-' }}</span>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-stone-500">STATUS</span>
@@ -144,8 +144,8 @@
                     <div class="flex justify-between border-b border-stone-100 pb-1">
                         <span class="text-stone-500">Tanggal & Waktu</span>
                         <span class="font-bold">
-                            {{ $item->tanggal ? \Carbon\Carbon::parse($item->tanggal)->format('d M Y') : '-' }} |
-                            {{ $item->jam_mulai ? \Carbon\Carbon::parse($item->jam_mulai)->format('H:i') : '-' }}–{{ $item->jam_selesai ? \Carbon\Carbon::parse($item->jam_selesai)->format('H:i') : '-' }} WIB
+                            {{ $item->tanggal ? \Carbon\Carbon::parse($item->tanggal)->locale('id')->translatedFormat('d M Y') : '-' }} |
+                            {{ $item->jam_mulai ? \Carbon\Carbon::parse($item->jam_mulai)->format('H.i') : '-' }}–{{ $item->jam_selesai ? \Carbon\Carbon::parse($item->jam_selesai)->format('H.i') : '-' }} WIB
                         </span>
                     </div>
                     <div class="flex justify-between border-b border-stone-100 pb-1">

@@ -21,6 +21,57 @@ use Carbon\Carbon;
 
 class PaymentController extends Controller
 {    
+    public function changeMethod(Request $request, string $kode_pesanan)
+    {
+        $data = $request->validate(['metode_pembayaran' => ['required', 'in:Tunai,Midtrans']]);
+        $order = Pesanan::with(['detailPesanan.menu', 'meja', 'pembayaran', 'reservasi'])->where('kode_pesanan', $kode_pesanan)->firstOrFail();
+        if (strtolower((string) $order->status) !== 'pending') return back()->with('error', 'Metode pembayaran hanya dapat diubah saat pesanan menunggu pembayaran.');
+        $isReservation = (bool) $order->reservasi;
+        $deadline = $isReservation ? $order->reservasi->paymentDeadline() : $order->created_at->copy()->addMinutes(app(\App\Services\SystemSettings::class)->get(
+            strtolower((string) $order->pembayaran()->where('jenis', 'Full')->oldest('id')->value('metode')) === 'tunai' ? 'selforder_cash_minutes' : 'selforder_qris_minutes'
+        ));
+        if (now()->gte($deadline)) return back()->with('error', 'Batas waktu pembayaran telah habis.');
+        $kind = $isReservation ? 'DP' : 'Full';
+        $current = $order->pembayaran()->where('jenis', $kind)->latest('id')->first();
+        $targetMethod = $data['metode_pembayaran'] === 'Tunai' ? 'tunai' : 'other_qris';
+        if (strtolower((string) $current?->metode) === $targetMethod) return back()->with('error', 'Metode tersebut sudah digunakan.');
+        if ($current?->status === 'Success') return back()->with('error', 'Pembayaran sudah berhasil.');
+
+        // Cancel active Midtrans transaction first so an old payment link cannot be paid after switching.
+        foreach ($order->pembayaran()->where('jenis', $kind)->where('status', 'Pending')->whereNotNull('midtrans_order_id')->get() as $old) {
+            try {
+                app(MidtransConfigService::class)->configure();
+                Transaction::cancel($old->midtrans_order_id);
+                $remote = Transaction::status($old->midtrans_order_id);
+                if (in_array(strtolower((string) data_get($remote, 'transaction_status')), ['settlement', 'capture'], true)) {
+                    return back()->with('error', 'Pembayaran lama sudah diproses. Muat ulang halaman untuk melihat statusnya.');
+                }
+                $old->update(['status' => 'Failed']);
+            } catch (\Throwable $e) {
+                Log::warning('Tidak dapat menutup pembayaran lama saat ganti metode.', ['payment_id' => $old->id, 'error' => $e->getMessage()]);
+                return back()->with('error', 'Pembayaran lama belum dapat ditutup. Coba kembali beberapa saat lagi.');
+            }
+        }
+
+        $amount = (int) ($current?->nominal ?? $order->total_harga);
+        $payment = Pembayaran::create(['id_pesanan' => $order->id, 'jenis' => $kind, 'metode' => $targetMethod, 'nominal' => $amount, 'status' => 'Pending']);
+        if ($targetMethod === 'other_qris') {
+            try {
+                app(MidtransConfigService::class)->configure();
+                $remainingMinutes = max(1, (int) ceil(now()->diffInSeconds($deadline) / 60));
+                $midtransId = 'ORDER-' . $order->id . '-' . Str::random(8);
+                $items = $isReservation ? [['id' => 'DP', 'price' => $amount, 'quantity' => 1, 'name' => 'DP Reservasi']] : $order->detailPesanan->map(fn ($d) => ['id' => (string) $d->id_menu, 'price' => (int) round($d->subtotal / max(1, $d->jumlah)), 'quantity' => $d->jumlah, 'name' => substr($d->menu?->nama ?? 'Menu', 0, 50)])->values()->all();
+                $token = Snap::getSnapToken(['transaction_details' => ['order_id' => $midtransId, 'gross_amount' => $amount], 'item_details' => $items, 'enabled_payments' => ['other_qris'], 'custom_expiry' => ['start_time' => now()->format('Y-m-d H:i:s O'), 'unit' => 'minute', 'duration' => $remainingMinutes]]);
+                $payment->update(['midtrans_order_id' => $midtransId, 'snap_token' => $token]);
+            } catch (\Throwable $e) {
+                $payment->update(['status' => 'Failed']);
+                Log::error('Gagal menyiapkan token saat ganti metode pembayaran.', ['payment_id' => $payment->id, 'error' => $e->getMessage()]);
+                return back()->with('error', 'Pembayaran digital gagal disiapkan. Coba kembali.');
+            }
+        }
+        return redirect()->route($isReservation ? 'customer.reservasi.detail' : 'customer.order.detail', ['kode_pesanan' => $kode_pesanan])->with('open_midtrans', $targetMethod !== 'tunai');
+    }
+
     public function midtransNotification(Request $request)
     {
         app(MidtransConfigService::class)->configure();
@@ -145,7 +196,7 @@ class PaymentController extends Controller
                         $canRestore = false;
 
                         // Cek apakah kuota meja masih mencukupi untuk memulihkan pesanan yang sempat dibatalkan
-                        if ($reservasi && (int) $reservasi->jml_org > 10) {
+                        if ($reservasi && (int) $reservasi->jml_org > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests')) {
                             $canRestore = true;
                         } elseif ($reservasi) {
                             $capacity = app(\App\Services\ReservationCapacityService::class)->check(
@@ -262,7 +313,7 @@ class PaymentController extends Controller
                     $method = ucfirst((string) $dp->metode);
                     $dpAmount = (int) $dp->nominal;
                     $date = Carbon::parse($reservasiToNotify->tanggal, 'Asia/Jakarta')
-                        ->format('d M Y');
+                        ->locale('id')->translatedFormat('d M Y');
 
                     $customerMessage = "✅ *Reservasi Dikonfirmasi!*\n\n"
                         . "Halo *{$customer->nama}*, pembayaran DP kamu berhasil diterima.\n\n"
@@ -605,7 +656,7 @@ class PaymentController extends Controller
                 'custom_expiry' => [
                     'start_time' => now()->format('Y-m-d H:i:s O'),
                     'unit' => 'minute',
-                    'duration' => 15,
+                    'duration' => app(\App\Services\SystemSettings::class)->get('selforder_qris_minutes'),
                 ],
                 'callbacks' => [
                     'finish' => $returnUrl,

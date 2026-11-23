@@ -80,6 +80,16 @@
                         </button>
                     </form>
                 @endif
+                @if($statusPesanan === 'pending' && $withinPaymentWindow && $paymentStatus !== 'success')
+                    <form action="{{ route('customer.payment.change-method', $pesanan->kode_pesanan) }}" method="POST" class="flex items-center gap-2">
+                        @csrf
+                        <label for="reservation-payment-method" class="sr-only">Metode pembayaran baru</label>
+                        <select id="reservation-payment-method" name="metode_pembayaran" class="rounded-lg border-2 border-stone-400 bg-white px-3 py-2 font-bold">
+                            <option value="{{ strtolower((string) $paymentDp?->metode) === 'tunai' ? 'Midtrans' : 'Tunai' }}">{{ strtolower((string) $paymentDp?->metode) === 'tunai' ? 'Midtrans / QRIS' : 'Tunai' }}</option>
+                        </select>
+                        <button class="rounded-lg border-2 border-stone-900 bg-white px-4 py-2 font-bold">Ubah Metode Pembayaran</button>
+                    </form>
+                @endif
             </div>
         </div>
 
@@ -217,7 +227,7 @@
                     </div>
                     <div class="flex items-start justify-between gap-3 border-b border-amber-900/30 pb-2.5">
                         <span class="shrink-0 text-stone-300 font-medium">Catatan Khusus</span>
-                        <div class="max-h-24 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words pr-1 text-right text-stone-200 italic">{{ trim($reservasi->keterangan ?? '') ?: '-' }}</div>
+                        <div class="max-h-24 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words pr-1 text-left text-stone-200 italic">{{ trim($reservasi->keterangan ?? '') ?: '-' }}</div>
                     </div>
                     <div class="flex items-center justify-between pb-2.5 border-b border-amber-900/30">
                         <span class="text-stone-300 font-medium">Uang Muka (DP)</span>

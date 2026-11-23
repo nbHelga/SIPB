@@ -36,7 +36,7 @@
     @if($st === 'pending')
         <div class="w-full rounded-2xl border-4 {{ $statusPembayaran === 'failed' ? 'border-red-600 bg-red-50' : 'border-amber-500 bg-amber-50' }} p-6 md:p-8 md:px-12 shadow-[8px_8px_0_0_rgba(0,0,0,1)] flex flex-col items-center text-center transition-all">
             @if($orderExpiresAt)
-                <div id="order-countdown" data-expires-at="{{ $orderExpiresAt }}" class="mb-4 rounded-lg border-2 border-amber-600 bg-amber-200 px-4 py-2 text-base font-black tracking-wider text-amber-900" aria-label="Sisa waktu pembayaran">--:--</div>
+                <div id="order-countdown" data-expires-at="{{ $orderExpiresAt }}" class="mb-4 rounded-lg border-2 border-amber-600 bg-amber-200 px-4 py-2 text-base font-black tracking-wider text-amber-900" aria-label="Sisa waktu pembayaran">00:00:00</div>
                 <p id="order-expired-message" class="hidden text-sm font-bold text-red-700" role="status">Waktu pembayaran habis. Halaman sedang diperbarui.</p>
             @endif
             
@@ -82,6 +82,17 @@
                             class="w-full whitespace-nowrap rounded-xl border-2 border-stone-900 bg-emerald-500 px-8 py-3.5 font-black text-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-emerald-600 active:translate-y-1 active:shadow-none">
                             🔄 Ulangi Pembayaran
                         </button>
+                    </form>
+                @endif
+
+                @if($statusPembayaran !== 'success' && $orderExpiresAt && now()->timestamp * 1000 < $orderExpiresAt)
+                    <form action="{{ route('customer.payment.change-method', $pesanan->kode_pesanan) }}" method="POST" class="flex flex-wrap items-center justify-center gap-2">
+                        @csrf
+                        <label for="order-payment-method" class="sr-only">Metode pembayaran baru</label>
+                        <select id="order-payment-method" name="metode_pembayaran" class="rounded-lg border-2 border-stone-400 bg-white px-3 py-2 font-bold">
+                            <option value="{{ $isCashPayment ? 'Midtrans' : 'Tunai' }}">{{ $isCashPayment ? 'Midtrans / QRIS' : 'Tunai' }}</option>
+                        </select>
+                        <button class="rounded-lg border-2 border-stone-900 bg-white px-4 py-2 font-bold text-stone-900">Ubah Metode Pembayaran</button>
                     </form>
                 @endif
 
@@ -232,13 +243,18 @@
                 const updateCountdown = () => {
                     const remaining = expiresAt - Date.now();
                     if (remaining <= 0) {
-                        countdown.textContent = '00:00';
+                        countdown.textContent = '00:00:00';
                         countdown.classList.add('border-red-600', 'bg-red-100', 'text-red-800');
                         expireAndReload();
                         return;
                     }
-                    const seconds = Math.floor(remaining / 1000);
-                    countdown.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+                    const totalSeconds = Math.floor(remaining / 1000);
+                    const hours = Math.floor(totalSeconds / 3600);
+                    const minutes = Math.floor((totalSeconds % 3600) / 60);
+                    const seconds = totalSeconds % 60;
+                    countdown.textContent = [hours, minutes, seconds]
+                        .map(value => String(value).padStart(2, '0'))
+                        .join(':');
                 };
                 updateCountdown();
                 window.setInterval(updateCountdown, 1000);
@@ -262,7 +278,7 @@
                 } catch (_) {
                     // Keep polling; a temporary network error should not stop status updates.
                 }
-            }, 20000);
+            }, {{ app(\App\Services\SystemSettings::class)->get('payment_status_poll_seconds') * 1000 }});
         })();
     </script>
 @endif

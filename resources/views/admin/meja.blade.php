@@ -97,6 +97,7 @@
                             @csrf
                             @method('PUT')
                             <input type="text" name="nomor_meja" value="{{ $meja->nomor_meja }}" required maxlength="10" class="min-w-0 w-20 rounded border border-stone-400 px-1.5 py-1 text-xs font-bold" aria-label="Nomor meja">
+                            <span class="block text-[10px] text-stone-500">Maksimal 10 karakter; nomor meja harus unik.</span>
                             <select name="lantai" class="min-w-0 flex-1 rounded border border-stone-400 px-1.5 py-1 text-xs font-bold" aria-label="Pindahkan meja {{ $meja->nomor_meja }} ke lantai">
                                 <option value="1" @selected((string) $meja->lantai === '1')>Lantai 1</option>
                                 <option value="2" @selected((string) $meja->lantai === '2')>Lantai 2</option>
@@ -119,9 +120,9 @@
                         @endif
                     </div>
 
-                    <!-- Highlight Badge Tabrakan Waktu -->
+                    <!-- Highlight Badge Unavailable -->
                     <div x-show="isPlotting && conflictTables.includes('{{ $meja->id }}')" style="display:none;" class="absolute -top-3 -right-3 bg-red-600 border-2 border-white text-white text-[10px] font-black px-2 py-1 rounded-full shadow-lg z-10 animate-pulse">
-                        Tabrakan Waktu
+                        Unavailable
                     </div>
                 </div>
             @endforeach
@@ -143,6 +144,7 @@
             <input type="hidden" name="lantai" :value="addTableFloor">
             <label for="new-table-number" class="mt-4 block text-sm font-bold text-stone-700">Nomor meja</label>
             <input id="new-table-number" name="nomor_meja" required maxlength="10" class="mt-1 w-full rounded-lg border-2 border-stone-400 px-3 py-2 font-bold" placeholder="Contoh: M23">
+            <p class="mt-1 text-xs text-stone-500">Maksimal 10 karakter; nomor meja harus unik.</p>
             <div class="mt-4 flex justify-end gap-2">
                 <button type="button" @click="showAddTableModal = false" class="rounded-lg border border-stone-400 px-3 py-2 text-sm font-bold">Batal</button>
                 <button type="submit" class="rounded-lg border-2 border-stone-900 bg-[#4A2311] px-4 py-2 text-sm font-bold text-white">Tambah meja</button>
