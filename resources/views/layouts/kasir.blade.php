@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>@yield('title', 'SIPB - BigBang Eatery')</title>
+    <title>@yield('title', 'Aplikasi BigBang Eatery')</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
@@ -13,7 +13,7 @@
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 bg-orange-500 rounded-full flex items-center justify-center text-white font-bold text-lg border-2 border-white shadow-[2px_2px_0_0_rgba(0,0,0,0.3)]">B</div>
-                <span class="text-lg font-black tracking-tight">SIPB - <span class="text-orange-400">BIGBANG</span></span>
+                <span class="text-lg font-black tracking-tight">BIGBANG <span class="text-orange-400">EATERY</span></span>
             </div>
             <div class="flex items-center gap-4">
                 @if(auth()->check())

@@ -25,6 +25,7 @@ class SystemSettingController extends Controller
             'table_default_capacity' => ['required', 'integer', 'min:1', 'max:100'],
             'payment_status_poll_seconds' => ['required', 'integer', 'min:1', 'max:300'],
             'admin_notification_poll_seconds' => ['required', 'integer', 'min:1', 'max:300'],
+            'reservation_buffer_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
         ]);
         $settings->update($validated);
         return back()->with('success', 'Pengaturan sistem berhasil disimpan.');

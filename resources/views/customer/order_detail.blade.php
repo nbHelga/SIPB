@@ -35,23 +35,32 @@
          ========================================================================= --}}
     @if($st === 'pending')
         <div class="w-full rounded-2xl border-4 {{ $statusPembayaran === 'failed' ? 'border-red-600 bg-red-50' : 'border-amber-500 bg-amber-50' }} p-6 md:p-8 md:px-12 shadow-[8px_8px_0_0_rgba(0,0,0,1)] flex flex-col items-center text-center transition-all">
-            @if($orderExpiresAt)
-                <div id="order-countdown" data-expires-at="{{ $orderExpiresAt }}" class="mb-4 rounded-lg border-2 border-amber-600 bg-amber-200 px-4 py-2 text-base font-black tracking-wider text-amber-900" aria-label="Sisa waktu pembayaran">00:00:00</div>
-                <p id="order-expired-message" class="hidden text-sm font-bold text-red-700" role="status">Waktu pembayaran habis. Halaman sedang diperbarui.</p>
-            @endif
             
-            <div class="flex items-center justify-center gap-3 font-black">
+            
+            <div class="flex flex-col items-center gap-3 text-center font-black md:flex-row md:justify-center md:gap-4">
                 @if($statusPembayaran === 'failed')
-                    <span class="text-3xl" aria-hidden="true">⚠️</span>
-                    <h2 class="text-xl md:text-2xl text-red-700">Pembayaran Gagal</h2>
+                    <div class="flex items-center justify-center gap-3">
+                        <span class="text-3xl" aria-hidden="true">⚠️</span>
+                        <h2 class="text-xl text-red-700 md:text-2xl">Pembayaran Gagal</h2>
+                    </div>
                 @else
-                    <svg class="h-8 w-8 animate-spin text-amber-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
-                    <h2 class="text-xl md:text-2xl text-amber-800">Menunggu Pembayaran</h2>
+                    <div class="flex items-center justify-center gap-3">
+                        <svg class="h-8 w-8 animate-spin text-amber-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        <h2 class="text-xl text-amber-800 md:text-2xl">Menunggu Pembayaran</h2>
+                    </div>
+                @endif
+
+                @if($orderExpiresAt)
+                    <div id="order-countdown" data-expires-at="{{ $orderExpiresAt }}" class="rounded-lg border-2 border-amber-600 bg-amber-200 px-4 py-2 text-base font-black tracking-wider text-amber-900 shadow-[3px_3px_0_0_rgba(217,119,6,0.3)] md:text-lg" aria-label="Sisa waktu pembayaran">00:00:00</div>
                 @endif
             </div>
+
+            @if($orderExpiresAt)
+                <p id="order-expired-message" class="mt-3 hidden text-sm font-bold text-red-700" role="status">Waktu pembayaran habis. Halaman sedang diperbarui.</p>
+            @endif
 
             <p class="mt-4 text-sm md:text-base font-bold {{ $statusPembayaran === 'failed' ? 'text-red-900' : 'text-amber-950' }} max-w-xl leading-relaxed">
                 @if($metodePembayaran === 'tunai')
@@ -70,12 +79,14 @@
             @endif
 
             <div class="mt-7 flex w-full flex-col items-center justify-center gap-3 sm:flex-row">
-                @if($statusPembayaran === 'pending' && !empty($snapToken))
+                {{-- Tombol Lanjutkan Pembayaran (Khusus QRIS/Midtrans) --}}
+                @if(!$isCashPayment && $statusPembayaran === 'pending' && !empty($snapToken))
                     <button type="button" onclick="openOrderSnap()"
                         class="w-full sm:w-auto whitespace-nowrap rounded-xl border-2 border-stone-900 bg-[#4A2311] px-8 py-3.5 font-black text-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-[#8B5A2B] active:translate-y-1 active:shadow-none">
                         💳 Lanjutkan Pembayaran
                     </button>
-                @elseif($canRetryPayment)
+                {{-- Tombol Ulangi Pembayaran (Khusus QRIS/Midtrans ketika gagal) --}}
+                @elseif(!$isCashPayment && $canRetryPayment)
                     <form action="{{ route('customer.payment.ulangi', $pesanan->kode_pesanan) }}" method="POST">
                         @csrf
                         <button type="submit"
@@ -85,15 +96,27 @@
                     </form>
                 @endif
 
+                {{-- Tombol Ubah Metode Pembayaran (Langsung toggle Tunai <-> Midtrans tanpa dropdown) --}}
                 @if($statusPembayaran !== 'success' && $orderExpiresAt && now()->timestamp * 1000 < $orderExpiresAt)
-                    <form action="{{ route('customer.payment.change-method', $pesanan->kode_pesanan) }}" method="POST" class="flex flex-wrap items-center justify-center gap-2">
+                    <form id="form-change-order-payment" action="{{ route('customer.payment.change-method', $pesanan->kode_pesanan) }}" method="POST" class="hidden">
                         @csrf
-                        <label for="order-payment-method" class="sr-only">Metode pembayaran baru</label>
-                        <select id="order-payment-method" name="metode_pembayaran" class="rounded-lg border-2 border-stone-400 bg-white px-3 py-2 font-bold">
-                            <option value="{{ $isCashPayment ? 'Midtrans' : 'Tunai' }}">{{ $isCashPayment ? 'Midtrans / QRIS' : 'Tunai' }}</option>
-                        </select>
-                        <button class="rounded-lg border-2 border-stone-900 bg-white px-4 py-2 font-bold text-stone-900">Ubah Metode Pembayaran</button>
+                        <input type="hidden" name="metode_pembayaran" value="{{ $isCashPayment ? 'Midtrans' : 'Tunai' }}">
                     </form>
+                    <button
+                        type="button"
+                        onclick="window.dispatchEvent(new CustomEvent('component-confirm', {
+                            detail: {
+                                title: 'Ubah Metode Pembayaran',
+                                message: '{{ $isCashPayment ? 'Ubah pembayaran ke QRIS / Online via Midtrans? Batas waktu pembayaran tetap melanjutkan sisa waktu transaksi ini.' : 'Ubah pembayaran menjadi Tunai di Kasir? Anda dapat langsung menuju kasir untuk menyelesaikan pembayaran sebelum batas waktu berakhir.' }}',
+                                formId: 'form-change-order-payment',
+                                confirmText: 'Ya, Ubah Metode',
+                                confirmColor: 'bg-amber-600 border-amber-900'
+                            }
+                        }))"
+                        class="w-full sm:w-auto whitespace-nowrap rounded-xl border-2 border-stone-900 bg-amber-400 px-6 py-3.5 font-black text-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-amber-500 active:translate-y-1 active:shadow-none"
+                    >
+                        🔄 Ubah ke {{ $isCashPayment ? 'QRIS' : 'Tunai' }}
+                    </button>
                 @endif
 
                 <form id="cancel-order-form" action="{{ route('customer.payment.batal', $pesanan->kode_pesanan) }}" method="POST" class="w-full sm:w-auto">
@@ -182,7 +205,7 @@
                             <p class="truncate text-xs font-black text-stone-900 md:text-sm">{{ $detail->menu->nama ?? 'Menu Terhapus' }}</p>
                             <p class="text-[10px] font-bold text-stone-500 md:text-xs">{{ $detail->jumlah }}x @ Rp {{ number_format($detail->subtotal / max(1, $detail->jumlah), 0, ',', '.') }}</p>
                             @if($detail->catatan)
-                                <p class="truncate text-[10px] font-medium italic text-amber-800">💬 {{ $detail->catatan }}</p>
+                                <div class="mt-0.5 max-h-14 overflow-y-auto overflow-x-hidden break-words whitespace-pre-line pr-1 text-[10px] md:text-xs font-medium italic text-amber-800 scrollbar-thin scrollbar-thumb-stone-300">💬 {{ trim($detail->catatan) }}</div>
                             @endif
                         </div>
                     </div>

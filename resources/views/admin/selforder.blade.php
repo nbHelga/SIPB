@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Kelola Self Order - SIPB')
+@section('title', 'Kelola Self Order - BigBang Eatery')
 
 @section('content')
 <div x-data="selfOrderApp()" class="relative flex h-[calc(100vh-6rem)] gap-4 xl:gap-4">

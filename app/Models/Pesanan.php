@@ -88,6 +88,18 @@ class Pesanan extends Model
         return $this->hasMany(Pembayaran::class, 'id_pesanan', 'id');
     }
 
+    public function latestPayment()
+    {
+        return $this->hasOne(Pembayaran::class, 'id_pesanan', 'id')->latestOfMany('id');
+    }
+
+    public function successfulPayment()
+    {
+        return $this->hasOne(Pembayaran::class, 'id_pesanan', 'id')
+            ->where('status', 'Success')
+            ->latestOfMany('id');
+    }
+
     // public function getDaftarMejaAttribute()
     // {
     //     // Jika pesanan reservasi, ambil seluruh meja dari relasi detail_reservasi

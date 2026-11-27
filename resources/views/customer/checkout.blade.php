@@ -51,7 +51,7 @@
                             <h3 class="font-bold text-sm lg:text-base text-stone-900 truncate">{{ $menu['nama'] }}</h3>
                             <p class="text-xs text-stone-500">{{ $item['jumlah'] }}x Rp {{ number_format($menu['harga'], 0, ',', '.') }}</p>
                             @if($item['catatan'] ?? null)
-                                <p class="text-xs text-[#4A2311] italic font-medium">Catatan: {{ $item['catatan'] }}</p>
+                                <div class="mt-1 max-h-14 overflow-y-auto overflow-x-hidden break-words whitespace-pre-line text-xs text-[#4A2311] italic font-medium pr-1 scrollbar-thin scrollbar-thumb-stone-300">Catatan: {{ trim($item['catatan']) }}</div>
                             @endif
                         </div>
                         <div class="text-right flex-shrink-0">

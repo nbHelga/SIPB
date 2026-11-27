@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Kelola User - SIPB')
+@section('title', 'Kelola User - BigBang Eatery')
 
 @section('content')
 {{-- Flash Session Alert (Notifikasi dari Controller) --}}

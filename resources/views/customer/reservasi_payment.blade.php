@@ -110,9 +110,9 @@
                         </span>
                     </div>
                     
-                    <div class="flex items-start justify-between py-1.5 border-b border-stone-100">
-                        <span class="text-stone-500 font-medium shrink-0">Keterangan Reservasi</span>
-                        <div class="max-h-20 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words text-left font-medium text-stone-800 text-xs lg:text-sm italic">
+                    <div class="py-2 border-b border-stone-100">
+                        <span class="text-stone-500 font-medium block mb-1">Keterangan Reservasi</span>
+                        <div class="max-h-24 min-w-0 w-full overflow-y-auto whitespace-pre-line break-words text-left font-medium text-stone-800 text-xs lg:text-sm italic bg-stone-50 p-2.5 rounded-lg border border-stone-200">
                             {{ trim($draftObj->keterangan ?? '') ?: '-' }}
                         </div>
                     </div>
@@ -124,26 +124,17 @@
                     </div>
                 @endif
 
-                <!-- Card DP Info (Kompak) -->
-                <div class="bg-amber-50 border-2 border-stone-900 rounded-xl p-3.5 text-center shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
-                    <p class="text-[11px] font-black text-stone-600 uppercase tracking-wider mb-0.5">
-                        @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
-                            Uang Muka Setelah Persetujuan Admin
-                        @else
+                @if($pendingReservasi)
+                    <!-- Card DP Info (Kompak saat ada reservasi aktif) -->
+                    <div class="bg-amber-50 border-2 border-stone-900 rounded-xl p-3.5 text-center shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+                        <p class="text-[11px] font-black text-stone-600 uppercase tracking-wider mb-0.5">
                             Uang Muka (DP) Wajib Minimal
-                        @endif
-                    </p>
-                    <p class="text-2xl lg:text-3xl font-black text-[#4A2311]">
-                        Rp {{ number_format(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), 0, ',', '.') }}
-                    </p>
-                    <p class="text-[11px] text-stone-500 mt-1">
-                        @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
-                            *Pembayaran DP dimulai setelah reservasi disetujui.
-                        @else
-                            *Sisa tagihan menu dibayarkan langsung di kasir restoran.
-                        @endif
-                    </p>
-                </div>
+                        </p>
+                        <p class="text-2xl lg:text-3xl font-black text-[#4A2311]">
+                            Rp {{ number_format(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), 0, ',', '.') }}
+                        </p>
+                    </div>
+                @endif
                 
             </div>
 
@@ -152,29 +143,54 @@
                 <form action="{{ route('customer.reservasi.create_transaction') }}" method="POST" class="space-y-4 mt-6">
                     @csrf
                     
-                    {{-- Input Nominal Fleksibel --}}
-                    <div class="bg-stone-50 p-4 rounded-xl border-2 border-stone-200">
-                        <label for="nominal_dp" class="block text-xs font-bold text-stone-700 mb-2">
-                            Nominal DP (minimal Rp 50.000)
-                        </label>
-                        <div class="relative">
-                            <span class="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-600">Rp</span>
-                            <input
-                                id="nominal_dp"
-                                type="text"
-                                inputmode="numeric"
-                                data-thousands
-                                name="nominal_dp"
-                                min="{{ app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') }}"
-                                max="{{ (int) ($totalHargaMenu ?? 0) }}"
-                                value="{{ old('nominal_dp', app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp')) }}"
-                                class="w-full pl-10 pr-4 py-3 border-2 border-stone-300 rounded-lg text-sm font-black text-[#4A2311] focus:border-[#4A2311] focus:outline-none"
-                                required
-                            >
+                    {{-- Card Pengaturan & Input Nominal DP Terpadu --}}
+                    <div class="rounded-2xl border-2 border-stone-900 bg-stone-50 overflow-hidden shadow-[4px_4px_0_0_rgba(0,0,0,1)]">
+                        <!-- Header Informasi Batas DP -->
+                        <div class="bg-amber-50/90 border-b-2 border-stone-900 p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+                            <div>
+                                <span class="inline-block text-[10px] font-black uppercase tracking-wider text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded border border-amber-300">
+                                    @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
+                                        Uang Muka Setelah Persetujuan Admin
+                                    @else
+                                        Uang Muka (DP) Wajib Minimal
+                                    @endif
+                                </span>
+                                <p class="text-xl sm:text-2xl font-black text-[#4A2311] mt-0.5">
+                                    Rp {{ number_format(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), 0, ',', '.') }}
+                                </p>
+                            </div>
+                            <div class="sm:text-right">
+                                <span class="text-[11px] font-bold text-stone-500 block">Batas Maksimal (Total Menu)</span>
+                                <span class="text-sm font-black text-stone-800">
+                                    Rp {{ number_format((int) ($totalHargaMenu ?? 0), 0, ',', '.') }}
+                                </span>
+                            </div>
                         </div>
-                        <p class="text-[10px] text-stone-500 mt-1.5">
-                            DP minimal Rp50.000. Anda dapat membayar lebih hingga sebesar total menu.
-                        </p>
+
+                        <!-- Kolom Input Pengisian Nominal DP -->
+                        <div class="p-3.5 sm:p-4">
+                            <label for="nominal_dp" class="block text-xs font-black text-stone-800 mb-1.5">
+                                Tentukan Nominal DP yang Ingin Dibayarkan
+                            </label>
+                            <div class="relative">
+                                <span class="absolute left-3.5 top-1/2 -translate-y-1/2 font-black text-stone-600">Rp</span>
+                                <input
+                                    id="nominal_dp"
+                                    type="text"
+                                    inputmode="numeric"
+                                    data-thousands
+                                    name="nominal_dp"
+                                    min="{{ app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') }}"
+                                    max="{{ (int) ($totalHargaMenu ?? 0) }}"
+                                    value="{{ old('nominal_dp', app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp')) }}"
+                                    class="w-full pl-11 pr-4 py-2.5 sm:py-3 border-2 border-stone-300 rounded-xl text-base font-black text-[#4A2311] focus:border-[#4A2311] focus:outline-none transition-colors"
+                                    required
+                                >
+                            </div>
+                            <p class="text-[11px] text-stone-500 mt-1.5 leading-relaxed">
+                                * Anda dapat membayar minimal Rp {{ number_format(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), 0, ',', '.') }} atau melunasi hingga sebesar total menu. Sisa tagihan dibayarkan langsung di kasir restoran saat tiba.
+                            </p>
+                        </div>
                     </div>
 
                     {{-- Checklist Catatan Sebelum Melanjutkan --}}
@@ -185,7 +201,7 @@
                             @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                                 <li>Nominal DP dicatat sekarang, pembayaran dimulai setelah disetujui admin.</li>
                             @else
-                                <li>DP minimal Rp 50.000 dan tidak melebihi total pesanan.</li>
+                                <li>Nominal DP yang diinput tidak melebihi total pesanan menu.</li>
                             @endif
                             <li>Sisa pelunasan dibayar langsung di kasir restoran saat tiba.</li>
                         </ul>
@@ -196,7 +212,7 @@
                         class="w-full py-3.5 bg-[#4A2311] text-white font-black rounded-xl border-2 border-stone-900 shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B] transition-all disabled:cursor-not-allowed disabled:bg-stone-500 disabled:opacity-50"
                         @disabled($hasMenuChanges)
                     >
-                            @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
+                        @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                             Kirim permintaan reservasi
                         @else
                             💳 Bayar Sekarang via Midtrans
@@ -207,7 +223,7 @@
         </div>
 
         <!-- KOLOM KANAN: DETAIL PESANAN MENU (5 Kolom) -->
-        <div class="lg:col-span-5 lg:min-h-[720px] bg-white rounded-2xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)] p-5 md:p-6 flex min-h-0 flex-col">
+        <div class="lg:col-span-5 lg:h-[720px] lg:max-h-[720px] bg-white rounded-2xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,1)] p-5 md:p-6 flex min-h-0 flex-col overflow-hidden">
             
             <div class="flex min-h-0 flex-1 flex-col">
                 <div class="border-b-2 border-stone-200 pb-2 mb-3">
@@ -216,8 +232,8 @@
                     </h3>
                 </div>
 
-                <!-- LIST ITEM MENU DENGAN SCROLLBAR INTERNAL JIKA TERLALU PANJANG -->
-                <div class="min-h-0 flex-1 overflow-y-auto pr-1.5 space-y-2.5 my-3 scrollbar-thin scrollbar-thumb-stone-400 scrollbar-track-stone-100">
+                <!-- LIST ITEM MENU DENGAN SCROLLBAR INTERNAL JIKA TERLALU PANJANG / MELEBIHI UKURAN -->
+                <div class="min-h-0 flex-1 max-h-[380px] lg:max-h-none overflow-y-auto overflow-x-auto pr-1.5 space-y-2.5 my-3 scrollbar-thin scrollbar-thumb-stone-400 scrollbar-track-stone-100">
                     @forelse($menuItems ?? [] as $item)
                         @php $menu = $item->menu; @endphp
                         <div class="flex items-center gap-2.5 p-2 bg-stone-50 border-2 border-stone-900 rounded-xl shadow-[2px_2px_0_0_rgba(0,0,0,1)]">
@@ -234,7 +250,7 @@
                                     {{ $item->jumlah }}x @ Rp {{ number_format($item->menu->harga, 0, ',', '.') }}
                                 </p>
                                 @if($item->catatan)
-                                    <p class="text-[10px] text-stone-400 italic truncate">"{{ $item->catatan }}"</p>
+                                    <div class="mt-0.5 max-h-14 overflow-y-auto overflow-x-hidden break-words whitespace-pre-line pr-1 text-[10px] text-stone-500 italic scrollbar-thin scrollbar-thumb-stone-300">"{{ trim($item->catatan) }}"</div>
                                 @endif
                             </div>
                             <div class="shrink-0 font-black text-stone-900 text-xs">

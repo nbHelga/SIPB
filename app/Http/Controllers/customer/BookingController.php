@@ -194,6 +194,7 @@ class BookingController extends Controller
                 if (in_array($status, ['expire', 'cancel', 'deny', 'failure'], true)) {
                     $payment->update([
                         'status' => 'Failed',
+                        'snap_token' => null,
                         'metode' => $method ?? $payment->metode,
                     ]);
                 }
@@ -211,7 +212,16 @@ class BookingController extends Controller
 
                 if ($isTransactionNotFound) {
                     // Normal sebelum customer memilih metode pembayaran di Snap.
-                    // Jangan menganggap transaksi/pembayaran gagal dari respons 404 ini.
+                    // Jika token Snap tidak kunjung dipilih metodenya melewati 15 menit,
+                    // tandai Failed agar tombol berubah menjadi Ulangi Pembayaran.
+                    $tokenTimestamp = $payment->updated_at ?? $payment->created_at;
+                    if ($tokenTimestamp && $tokenTimestamp->lte(now()->subMinutes(15))) {
+                        $payment->update([
+                            'status' => 'Failed',
+                            'snap_token' => null,
+                        ]);
+                    }
+
                     continue;
                 }
 
@@ -397,24 +407,28 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 return false;
             }
 
+            $hasOtherSuccessfulDp = $lockedOrder->pembayaran()
+                ->where('jenis', 'DP')
+                ->where('status', 'Success')
+                ->whereKeyNot($lockedPayment->id)
+                ->exists();
+
             $lockedPayment->update([
                 'status' => 'Success',
                 'metode' => $method ?? $lockedPayment->metode,
             ]);
 
-            $latestDpId = $lockedOrder->pembayaran()
-                ->where('jenis', 'DP')
-                ->latest('id')
-                ->value('id');
-
-            $validOrder = strtolower(trim((string) $lockedOrder->status)) === 'pending'
-                && (int) $latestDpId === (int) $lockedPayment->id;
+            $orderStatus = strtolower(trim((string) $lockedOrder->status));
+            $validOrder = !$hasOtherSuccessfulDp
+                && in_array($orderStatus, ['pending', 'waiting'], true);
 
             if (!$validOrder) {
-                Log::critical('Pembayaran reservasi berhasil, tetapi pesanan sudah tidak berstatus pending.', [
+                Log::critical('Pembayaran reservasi berhasil, tetapi pesanan sudah tidak berstatus pending atau sudah memiliki DP sukses lain.', [
                     'reservasi_id' => $lockedReservation->id,
                     'payment_id' => $lockedPayment->id,
                     'midtrans_order_id' => $lockedPayment->midtrans_order_id,
+                    'order_status' => $orderStatus,
+                    'has_other_successful_dp' => $hasOtherSuccessfulDp,
                     'transaction_time' => $transactionTime,
                 ]);
 
@@ -433,6 +447,15 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             }
 
             $lockedOrder->update(['status' => 'Reserved']);
+
+            $lockedOrder->pembayaran()
+                ->where('jenis', 'DP')
+                ->where('status', 'Pending')
+                ->whereKeyNot($lockedPayment->id)
+                ->update([
+                    'status' => 'Failed',
+                    'snap_token' => null,
+                ]);
 
             return true;
         }, 3);
@@ -488,6 +511,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 if (in_array($remoteStatus, ['expire', 'cancel', 'deny', 'failure'], true)) {
                     $payment->update([
                         'status' => 'Failed',
+                        'snap_token' => null,
                         'metode' => $method ?? $payment->metode,
                     ]);
 
@@ -521,6 +545,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 if (in_array($verifiedStatus, ['expire', 'cancel', 'deny', 'failure'], true)) {
                     $payment->update([
                         'status' => 'Failed',
+                        'snap_token' => null,
                         'metode' => $verifiedMethod ?? $payment->metode,
                     ]);
                 } else {
@@ -535,7 +560,10 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             } catch (\Throwable $e) {
                 if ($this->isMidtransTransactionNotFound($e)) {
                     // Belum memilih metode: belum ada transaksi Midtrans yang perlu dicancel.
-                    $payment->update(['status' => 'Failed']);
+                    $payment->update([
+                        'status' => 'Failed',
+                        'snap_token' => null,
+                    ]);
                     continue;
                 }
 
@@ -1235,17 +1263,21 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             ?->filter(fn ($p) => strtolower(trim((string) $p->jenis)) === 'dp' && strtolower(trim((string) $p->status)) === 'success')
             ->sum('nominal') ?? 0);
 
+        $pelunasanPayment = $pesanan?->pembayaran
+            ?->filter(fn ($p) => strtolower(trim((string) $p->jenis)) === 'pelunasan' && strtolower(trim((string) $p->status)) === 'success')
+            ->sortByDesc('id')
+            ->first();
+
+        $pelunasanSuccess = (float) ($pelunasanPayment?->nominal ?? 0);
+
         // Sisa pelunasan riil di resto:
         // Baik saat pembayaran DP masih pending (dalam proses) maupun sudah success (lunas),
-        // sisa tagihan yang riil dilunasi di resto adalah Total Menu dikurangi DP.
+        // sisa tagihan yang riil dilunasi di resto adalah Total Menu dikurangi DP dan Pelunasan.
         $pengurangDp = $dpSuccess > 0 ? $dpSuccess : $nominalDp;
-        $sisaTagihan = max(0, $totalHarga - $pengurangDp);
+        $sisaTagihan = max(0, $totalHarga - $pengurangDp - $pelunasanSuccess);
 
-        $paymentNotStarted = !$paymentDp
-            || (!$paymentDp->midtrans_order_id && !$paymentDp->snap_token
-                && strtolower(trim((string) $paymentDp->status)) === 'pending');
         $bisaUbahMenu = in_array($statusPesanan, ['pending', 'waiting'], true)
-            && $paymentNotStarted;
+            && $dpSuccess <= 0;
 
         $menus = Menu::Where('is_reservable', true)
                     ->orderByDesc('is_bestseller')
@@ -1256,6 +1288,9 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         $snapToken = $statusPembayaranDp === 'pending'
             ? $paymentDp?->snap_token
             : null;
+
+        $hasSelectedPaymentMethod = $paymentDp
+            && !in_array(strtolower(trim((string) $paymentDp->metode)), ['', 'midtrans'], true);
 
         $canRetryPayment = $statusPesanan === 'pending'
             && $statusPembayaranDp === 'failed'
@@ -1285,12 +1320,14 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             'statusPesanan',
             'statusPembayaranDp',
             'paymentDp',
+            'pelunasanPayment',
             'reservationFinished',
             'reservationUrl',
             'reservationSteps',
             'stepAktif',
             'withinPaymentWindow',
-            'paymentStatus'
+            'paymentStatus',
+            'hasSelectedPaymentMethod'
         ));
     }
 
@@ -1331,20 +1368,21 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 return ['error' => 'Waktu mengubah menu atau reservasi telah berakhir.', 'kode' => $pesanan->kode_pesanan];
             }
 
+            $hasSuccessfulDp = $pesanan->pembayaran()
+                ->where('jenis', 'DP')
+                ->where('status', 'Success')
+                ->lockForUpdate()
+                ->exists();
+
+            if ($hasSuccessfulDp) {
+                return ['error' => 'Menu tidak dapat diubah karena pembayaran DP sudah berhasil.', 'kode' => $pesanan->kode_pesanan];
+            }
+
             $dpPayment = $pesanan->pembayaran()
                 ->where('jenis', 'DP')
-                ->whereIn('status', ['Pending', 'Failed'])
                 ->latest('id')
                 ->lockForUpdate()
                 ->first();
-
-            if ($dpPayment && (
-                strtolower(trim((string) $dpPayment->status)) !== 'pending'
-                || $dpPayment->midtrans_order_id
-                || $dpPayment->snap_token
-            )) {
-                return ['error' => 'Pembayaran DP tidak dapat diedit; muat ulang halaman untuk melihat status terbaru.', 'kode' => $pesanan->kode_pesanan];
-            }
 
             $activeMenuQty = collect($validated['menu_qty'] ?? [])
                 ->map(fn ($qty) => (int) $qty)
@@ -1560,17 +1598,36 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 ->with('error', 'Reservasi tidak lagi menunggu pembayaran.');
         }
 
-        $oldPayment = $order->pembayaran()->where('jenis', 'DP')->latest('id')->first();
         if (now()->greaterThanOrEqualTo($this->reservationDeadline($reservasi))) {
             $this->expireUnpaidReservation($reservasi);
             return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
                 ->with('error', 'Waktu pembayaran reservasi telah habis.');
         }
+
+        // Sinkronisasi status pembayaran dengan Midtrans terlebih dahulu
+        $this->syncReservationPayment($reservasi);
+        $reservasi->refresh()->load('pesanan.pembayaran');
+
+        $oldPayment = $order->pembayaran()->where('jenis', 'DP')->latest('id')->first();
         $paymentStatus = strtolower(trim((string) ($oldPayment?->status ?? '')));
         $paymentIsUnstarted = $oldPayment
             && $paymentStatus === 'pending'
             && !$oldPayment->midtrans_order_id
             && !$oldPayment->snap_token;
+
+        // Jika pembayaran lama masih pending tetapi memiliki midtrans_order_id (misal expired di Midtrans),
+        // batalkan transaksi lama di Midtrans dan tandai Failed agar baris pembayaran baru (append-only) dapat dibuat
+        if ($oldPayment && $oldPayment->midtrans_order_id && $paymentStatus === 'pending') {
+            try {
+                app(MidtransConfigService::class)->configure();
+                Transaction::cancel($oldPayment->midtrans_order_id);
+            } catch (\Throwable $e) {
+                // Abaikan jika transaksi sudah cancel/expire/404 di Midtrans
+            }
+            $oldPayment->update(['status' => 'Failed', 'snap_token' => null]);
+            $paymentStatus = 'failed';
+        }
+
         if ($oldPayment && !$paymentIsUnstarted && $paymentStatus !== 'failed') {
             return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
                 ->with('error', 'Pembayaran sudah dimulai atau belum dapat diulangi. Muat ulang halaman.');
@@ -1585,10 +1642,21 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 if (strtolower(trim((string) $lockedOrder->status)) !== 'pending') {
                     throw ValidationException::withMessages(['payment' => 'Status reservasi berubah. Muat ulang halaman.']);
                 }
-                $latest = $lockedOrder->pembayaran()->where('jenis', 'DP')->latest('id')->first();
+
+                $hasSuccessfulDp = $lockedOrder->pembayaran()
+                    ->where('jenis', 'DP')
+                    ->where('status', 'Success')
+                    ->lockForUpdate()
+                    ->exists();
+                if ($hasSuccessfulDp) {
+                    throw ValidationException::withMessages(['payment' => 'Pembayaran DP sudah berhasil. Muat ulang halaman.']);
+                }
+
+                $latest = $lockedOrder->pembayaran()->where('jenis', 'DP')->latest('id')->lockForUpdate()->first();
                 if ($oldPayment && (!$latest || (int) $latest->id !== (int) $oldPayment->id)) {
                     throw ValidationException::withMessages(['payment' => 'Pembayaran berubah. Muat ulang halaman.']);
                 }
+
                 $latestStatus = strtolower(trim((string) ($latest?->status ?? '')));
                 $stillUnstarted = $latest
                     && $latestStatus === 'pending'
@@ -1598,25 +1666,35 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                     || now()->greaterThanOrEqualTo($this->reservationDeadline($lockedReservation))) {
                     throw ValidationException::withMessages(['payment' => 'Status pembayaran berubah atau batas waktu telah habis.']);
                 }
+
                 $amount = (int) ($latest?->nominal ?? min(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), (int) $lockedOrder->total_harga));
                 if ($amount < app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') || $amount > (int) $lockedOrder->total_harga) {
                     throw ValidationException::withMessages(['payment' => 'Nominal DP tidak valid. Hubungi admin untuk memperbarui reservasi.']);
                 }
-                if (!$latest) {
-                    $latest = new Pembayaran([
-                        'id_pesanan' => $lockedOrder->id,
-                        'jenis' => 'DP',
+
+                // Pola append-only: jika tombol ditekan untuk memulai placeholder awal yang belum memiliki
+                // midtrans_order_id/snap_token, isi baris tersebut; sedangkan untuk ulangi pembayaran (retry),
+                // buat baris Pembayaran baru agar riwayat transaksi sebelumnya tetap terjaga.
+                if ($stillUnstarted) {
+                    $latest->forceFill([
+                        'midtrans_order_id' => $newOrderId,
+                        'snap_token' => null,
                         'metode' => 'midtrans',
-                        'nominal' => $amount,
                         'status' => 'Pending',
-                    ]);
+                    ])->save();
+
+                    return $latest;
                 }
-                $latest->forceFill([
+
+                return Pembayaran::create([
+                    'id_pesanan' => $lockedOrder->id,
+                    'jenis' => 'DP',
+                    'metode' => 'midtrans',
+                    'nominal' => $amount,
                     'midtrans_order_id' => $newOrderId,
                     'snap_token' => null,
                     'status' => 'Pending',
-                ])->save();
-                return $latest;
+                ]);
             }, 3);
 
             app(MidtransConfigService::class)->configure();

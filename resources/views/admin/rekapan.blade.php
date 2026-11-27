@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Rekapan Menu Terjual - SIPB')
+@section('title', 'Rekapan Menu Terjual - BigBang Eatery')
 
 @section('content')
 <div class="rekapan-content space-y-5">

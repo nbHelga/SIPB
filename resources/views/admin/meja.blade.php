@@ -1,10 +1,11 @@
 @extends('layouts.admin')
 
-@section('title', 'Denah & Kelola Meja - SIPB')
+@section('title', 'Denah & Kelola Meja - BigBang Eatery')
 
 @section('content')
 <div x-data="alokasiMejaApp()" class="w-full pb-10">
     <x-alert type="client-notification" />
+    <x-alert type="confirm-action" />
 
     @if(session('success'))
         <x-alert type="success" :message="session('success')" :duration="5000" />
@@ -28,6 +29,26 @@
             <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-green-500"></span> Kosong</div>
             <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500"></span> Dipakai</div>
             <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-yellow-500"></span> Dipesan</div>
+        </div>
+    </div>
+
+    <!-- RINGKASAN STATUS MEJA & ALOKASI RESERVASI -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div class="rounded-xl border-2 border-stone-900 bg-white p-3.5 shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+            <p class="text-[11px] font-black uppercase tracking-wider text-stone-500">Meja Aktif</p>
+            <p class="mt-1 text-2xl font-black text-emerald-700">{{ $jumlahMejaAktif }}</p>
+        </div>
+        <div class="rounded-xl border-2 border-stone-900 bg-white p-3.5 shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+            <p class="text-[11px] font-black uppercase tracking-wider text-stone-500">Meja Nonaktif</p>
+            <p class="mt-1 text-2xl font-black text-stone-600">{{ $jumlahMejaNonaktif }}</p>
+        </div>
+        <div class="rounded-xl border-2 border-stone-900 bg-white p-3.5 shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+            <p class="text-[11px] font-black uppercase tracking-wider text-stone-500">Reservasi Belum Dialokasi</p>
+            <p class="mt-1 text-2xl font-black text-amber-600">{{ $jumlahReservasiBelumDialokasi }}</p>
+        </div>
+        <div class="rounded-xl border-2 border-stone-900 bg-white p-3.5 shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+            <p class="text-[11px] font-black uppercase tracking-wider text-stone-500">Reservasi Sudah Dialokasi</p>
+            <p class="mt-1 text-2xl font-black text-blue-700">{{ $jumlahReservasiSudahDialokasi }}</p>
         </div>
     </div>
 
@@ -80,43 +101,72 @@
                  <div x-show="!isPlotting || !selectedResId || {{ $meja->is_active ? 'true' : 'false' }}"
                      :class="getMejaClass('{{ $meja->id }}')"
                      @click="toggleMeja('{{ $meja->id }}')" 
-                     class="border-4 border-stone-900 rounded-xl p-4 flex flex-col justify-between relative min-h-[150px] transition-all select-none">
+                     class="border-4 border-stone-900 rounded-xl p-3.5 flex flex-col justify-between relative min-h-[145px] transition-all select-none">
                      
-                    <div class="flex items-center gap-3">
-                        <span class="w-4 h-4 rounded-full mr-2 flex-shrink-0 border-2 border-stone-900/20" :class="getLampClass('{{ $meja->id }}')"></span>
-                        <div class="flex flex-col">
-                            <span class="text-xl font-black text-stone-800">#{{ $meja->nomor_meja }}</span>
-                            <span class="text-[10px] uppercase font-bold text-stone-500">Lantai {{ $meja->lantai }}</span>
-                            <span class="text-[10px] font-black uppercase {{ $meja->is_active ? 'text-emerald-700' : 'text-stone-500' }}">{{ $meja->is_active ? 'Aktif' : 'Nonaktif' }}</span>
+                    <div>
+                        <!-- Header Meja: Status dot, Nomor Meja, Badge Status & Lantai -->
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="w-3.5 h-3.5 rounded-full flex-shrink-0 border-2 border-stone-900/30" :class="getLampClass('{{ $meja->id }}')"></span>
+                                <span class="text-xl font-black text-stone-900 tracking-tight truncate">#{{ $meja->nomor_meja }}</span>
+                            </div>
+                            <span class="text-[10px] uppercase font-black px-2 py-0.5 rounded border flex-shrink-0 {{ $meja->is_active ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-stone-100 text-stone-500 border-stone-300' }}">
+                                {{ $meja->is_active ? 'Aktif' : 'Nonaktif' }}
+                            </span>
+                        </div>
+
+                        <div class="mt-1.5 flex items-center gap-1.5 pl-5">
+                            <span class="text-[10px] uppercase font-bold text-stone-500 bg-stone-100 px-2 py-0.5 rounded border border-stone-200">
+                                Lantai {{ $meja->lantai }}
+                            </span>
                         </div>
                     </div>
 
-                    <div class="mt-3 space-y-2" x-show="!isPlotting" @click.stop>
+                    <!-- Action Controls Saat Tidak Dalam Mode Plotting -->
+                    <div class="mt-3 pt-2.5 border-t border-stone-200 space-y-1.5" x-show="!isPlotting" @click.stop>
                         @if($canManageTables)
-                        <form method="POST" action="{{ route('admin.meja.update', $meja->id) }}" class="flex items-center gap-1.5">
-                            @csrf
-                            @method('PUT')
-                            <input type="text" name="nomor_meja" value="{{ $meja->nomor_meja }}" required maxlength="10" class="min-w-0 w-20 rounded border border-stone-400 px-1.5 py-1 text-xs font-bold" aria-label="Nomor meja">
-                            <span class="block text-[10px] text-stone-500">Maksimal 10 karakter; nomor meja harus unik.</span>
-                            <select name="lantai" class="min-w-0 flex-1 rounded border border-stone-400 px-1.5 py-1 text-xs font-bold" aria-label="Pindahkan meja {{ $meja->nomor_meja }} ke lantai">
-                                <option value="1" @selected((string) $meja->lantai === '1')>Lantai 1</option>
-                                <option value="2" @selected((string) $meja->lantai === '2')>Lantai 2</option>
-                            </select>
-                            <button type="submit" class="rounded border border-stone-700 bg-white px-2 py-1 text-[10px] font-bold hover:bg-stone-100">Simpan</button>
-                        </form>
-                        <form method="POST" action="{{ route('admin.meja.delete', $meja->id) }}" onsubmit="return confirm('Hapus meja ini? Riwayat lama akan tetap tersimpan tanpa nomor meja.');">
-                            @csrf
-                            @method('DELETE')
-                            <button type="submit" class="w-full rounded border border-red-700 bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700 transition hover:bg-red-100">Hapus meja</button>
-                        </form>
-                        <form method="POST" action="{{ route('admin.meja.active', $meja->id) }}">
-                            @csrf
-                            @method('PATCH')
-                            <input type="hidden" name="is_active" value="{{ $meja->is_active ? '0' : '1' }}">
-                            <button type="submit" class="w-full rounded border border-stone-700 px-2 py-1 text-[10px] font-bold transition {{ $meja->is_active ? 'bg-stone-200 text-stone-700 hover:bg-stone-300' : 'bg-emerald-700 text-white hover:bg-emerald-800' }}">
-                                {{ $meja->is_active ? 'Nonaktifkan' : 'Aktifkan' }}
+                            <button type="button"
+                                @click="openEditTable('{{ $meja->id }}', '{{ $meja->nomor_meja }}', '{{ $meja->lantai }}')"
+                                class="w-full rounded-lg border-2 border-stone-900 bg-white py-1.5 px-2 text-[11px] font-black text-stone-800 shadow-[2px_2px_0_0_rgba(0,0,0,1)] hover:bg-stone-50 active:translate-y-[1px] active:shadow-none transition flex items-center justify-center gap-1">
+                                ✏️ Edit Meja
                             </button>
-                        </form>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <form id="form-toggle-active-meja-{{ $meja->id }}" method="POST" action="{{ route('admin.meja.active', $meja->id) }}" class="w-full">
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="is_active" value="{{ $meja->is_active ? '0' : '1' }}">
+                                    <button type="button"
+                                        @click="window.dispatchEvent(new CustomEvent('component-confirm', {
+                                            detail: {
+                                                title: '{{ $meja->is_active ? 'Nonaktifkan Meja #' . $meja->nomor_meja : 'Aktifkan Meja #' . $meja->nomor_meja }}',
+                                                message: '{{ $meja->is_active ? 'Apakah Anda yakin ingin menonaktifkan Meja #' . $meja->nomor_meja . '? Meja nonaktif tidak dapat digunakan untuk alokasi reservasi.' : 'Aktifkan kembali Meja #' . $meja->nomor_meja . ' agar dapat digunakan untuk alokasi reservasi dan dine-in?' }}',
+                                                formId: 'form-toggle-active-meja-{{ $meja->id }}',
+                                                confirmText: '{{ $meja->is_active ? 'Ya, Nonaktifkan' : 'Ya, Aktifkan' }}',
+                                                confirmColor: '{{ $meja->is_active ? 'bg-amber-600 border-amber-900' : 'bg-emerald-600 border-emerald-900' }}'
+                                            }
+                                        }))"
+                                        class="w-full rounded-lg border-2 border-stone-900 py-1 px-1 text-[10px] font-black transition shadow-[1px_1px_0_0_rgba(0,0,0,1)] active:translate-y-[1px] active:shadow-none truncate {{ $meja->is_active ? 'bg-stone-100 text-stone-700 hover:bg-stone-200' : 'bg-emerald-600 text-white hover:bg-emerald-700' }}">
+                                        {{ $meja->is_active ? 'Nonaktifkan' : 'Aktifkan' }}
+                                    </button>
+                                </form>
+                                <form id="form-delete-meja-{{ $meja->id }}" method="POST" action="{{ route('admin.meja.delete', $meja->id) }}" class="w-full">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="button"
+                                        @click="window.dispatchEvent(new CustomEvent('component-confirm', {
+                                            detail: {
+                                                title: 'Hapus Meja #{{ $meja->nomor_meja }}',
+                                                message: 'Apakah Anda yakin ingin menghapus Meja #{{ $meja->nomor_meja }}? Riwayat lama akan tetap tersimpan tanpa nomor meja.',
+                                                formId: 'form-delete-meja-{{ $meja->id }}',
+                                                confirmText: 'Ya, Hapus Meja',
+                                                confirmColor: 'bg-red-600 border-red-900'
+                                            }
+                                        }))"
+                                        class="w-full rounded-lg border-2 border-red-700 bg-red-50 py-1 px-1 text-[10px] font-black text-red-700 transition shadow-[1px_1px_0_0_rgba(185,28,28,0.3)] hover:bg-red-100 active:translate-y-[1px] active:shadow-none truncate">
+                                        Hapus
+                                    </button>
+                                </form>
+                            </div>
                         @endif
                     </div>
 
@@ -147,7 +197,50 @@
             <p class="mt-1 text-xs text-stone-500">Maksimal 10 karakter; nomor meja harus unik.</p>
             <div class="mt-4 flex justify-end gap-2">
                 <button type="button" @click="showAddTableModal = false" class="rounded-lg border border-stone-400 px-3 py-2 text-sm font-bold">Batal</button>
-                <button type="submit" class="rounded-lg border-2 border-stone-900 bg-[#4A2311] px-4 py-2 text-sm font-bold text-white">Tambah meja</button>
+                <button type="submit" class="rounded-lg border-2 border-stone-900 bg-[#4A2311] px-4 py-2 text-sm font-bold text-white shadow-[2px_2px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B]">Tambah meja</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- MODAL EDIT MEJA -->
+    <div x-show="showEditTableModal" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" @click.self="showEditTableModal = false">
+        <form method="POST" :action="editTableData.actionUrl" class="w-full max-w-sm rounded-xl border-4 border-stone-900 bg-white p-5 shadow-[6px_6px_0_0_rgba(0,0,0,1)]" @click.stop>
+            @csrf
+            @method('PUT')
+            <div class="flex items-center justify-between border-b-2 border-stone-200 pb-3 mb-4">
+                <h2 class="text-lg font-black text-stone-900">
+                    ✏️ Edit Meja <span class="text-[#4A2311]" x-text="`#${editTableData.nomor_meja}`"></span>
+                </h2>
+                <button type="button" @click="showEditTableModal = false" class="text-stone-400 hover:text-stone-800 text-xl font-black leading-none">&times;</button>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="edit-table-number" class="block text-xs font-black uppercase text-stone-700">Nomor Meja</label>
+                    <input id="edit-table-number" name="nomor_meja" x-model="editTableData.nomor_meja" required maxlength="10"
+                        class="mt-1 w-full rounded-lg border-2 border-stone-400 px-3 py-2 font-bold text-stone-900 focus:border-stone-900 focus:outline-none"
+                        placeholder="Contoh: M01">
+                    <p class="mt-1 text-[11px] text-stone-500">Maksimal 10 karakter; nomor meja harus unik.</p>
+                </div>
+
+                <div>
+                    <label for="edit-table-floor" class="block text-xs font-black uppercase text-stone-700">Posisi Lantai</label>
+                    <select id="edit-table-floor" name="lantai" x-model="editTableData.lantai"
+                        class="mt-1 w-full rounded-lg border-2 border-stone-400 px-3 py-2 font-bold text-stone-900 focus:border-stone-900 focus:outline-none">
+                        @foreach($lantaiList as $l)
+                            <option value="{{ $l }}">Lantai {{ $l }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end gap-2 pt-3 border-t border-stone-200">
+                <button type="button" @click="showEditTableModal = false" class="rounded-lg border-2 border-stone-400 px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-100 transition">
+                    Batal
+                </button>
+                <button type="submit" class="rounded-lg border-2 border-stone-900 bg-[#4A2311] px-4 py-2 text-xs font-black text-white shadow-[2px_2px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B] active:translate-y-[1px] active:shadow-none transition">
+                    Simpan Perubahan
+                </button>
             </div>
         </form>
     </div>
@@ -216,7 +309,14 @@
             currentTab: '{{ $lantaiList->first() ?? 1 }}',
             isPlotting: false,
             showAddTableModal: false,
+            showEditTableModal: false,
             addTableFloor: '1',
+            editTableData: {
+                id: '',
+                nomor_meja: '',
+                lantai: '1',
+                actionUrl: ''
+            },
             selectedResId: '',
             selectedTables: [],
             conflictTables: [],
@@ -252,6 +352,14 @@
             openAddTable(floor) {
                 this.addTableFloor = String(floor);
                 this.showAddTableModal = true;
+            },
+
+            openEditTable(id, nomor_meja, lantai) {
+                this.editTableData.id = String(id);
+                this.editTableData.nomor_meja = String(nomor_meja);
+                this.editTableData.lantai = String(lantai);
+                this.editTableData.actionUrl = '{{ route('admin.meja.update', ':id') }}'.replace(':id', id);
+                this.showEditTableModal = true;
             },
 
             onSelectRes() {

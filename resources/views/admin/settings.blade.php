@@ -1,10 +1,10 @@
 @extends('layouts.admin')
 
-@section('title', 'Pengaturan Sistem')
+@section('title', 'Pengaturan Aplikasi')
 
 @section('content')
 <main class="mx-auto max-w-4xl p-6">
-    <h1 class="mb-2 text-2xl font-black">Pengaturan Sistem</h1>
+    <h1 class="mb-2 text-2xl font-black">Pengaturan Aplikasi</h1>
     <p class="mb-6 text-sm text-stone-600">Atur batas waktu pembayaran dan batas operasional.</p>
     @if(session('success')) <div class="mb-4 rounded bg-green-100 p-3 text-green-800">{{ session('success') }}</div> @endif
     @if($errors->any()) <div class="mb-4 rounded bg-red-100 p-3 text-red-800">{{ $errors->first() }}</div> @endif
@@ -18,6 +18,7 @@
             'reservation_regular_max_guests' => 'Batas pax reservasi reguler',
             'reservation_max_guests' => 'Maksimum pax reservasi',
             'table_default_capacity' => 'Kapasitas default meja',
+            'reservation_buffer_minutes' => 'Jeda aman antarreservasi meja (menit)',
             'payment_status_poll_seconds' => 'Interval pemeriksaan status pembayaran (detik)',
             'admin_notification_poll_seconds' => 'Interval pemeriksaan notifikasi admin (detik)',
         ])

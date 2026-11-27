@@ -54,20 +54,20 @@
                             </div>
 
                             {{-- Info Menu & Manajamen Catatan --}}
-                            <div class="flex-1 min-w-0" x-data="{ openNote: false }">
+                            <div class="flex-1 min-w-0" x-data="{ openNote: false, noteText: @js((string) ($catatan ?? '')) }">
                                 <h3 class="font-bold truncate text-stone-900">{{ $menu['nama'] }}</h3>
                                 <p class="text-sm text-stone-500">Rp {{ number_format($menu['harga'], 0, ',', '.') }} / pcs</p>
 
                                 {{-- Jika Catatan Ada --}}
                                 @if(!empty($catatan))
-                                    <div class="mt-1.5 flex items-start gap-1.5 text-xs text-stone-700 bg-amber-50 p-1.5 rounded-md border border-amber-300">
-                                        <span class="flex-shrink-0 mt-0.5">📝</span>
-                                        <div class="flex-1 min-w-0 max-h-16 max-w-full overflow-y-auto overflow-x-hidden break-words whitespace-pre-line text-stone-800 font-medium italic pr-1">
-                                            {{ $catatan }}
+                                    <div class="mt-2 rounded-lg border border-amber-300 bg-amber-50/90 p-2 text-xs">
+                                        <div class="flex items-center justify-between gap-2 mb-0.5">
+                                            <span class="font-bold text-amber-900 flex items-center gap-1">📝 Catatan</span>
+                                            <button type="button" @click="openNote = !openNote" class="shrink-0 text-[11px] font-black text-[#4A2311] underline hover:text-stone-900">
+                                                Edit
+                                            </button>
                                         </div>
-                                        <button type="button" @click="openNote = !openNote" class="shrink-0 text-xs font-bold text-[#4A2311] underline hover:text-stone-900 ml-1 mt-0.5">
-                                            Edit
-                                        </button>
+                                        <div class="max-h-16 overflow-y-auto overflow-x-hidden break-words whitespace-pre-line text-stone-700 italic leading-relaxed">{{ trim($catatan) }}</div>
                                     </div>
                                 @else
                                     {{-- Jika Catatan Belum Ada --}}
@@ -78,19 +78,25 @@
 
                                 {{-- Form Edit / Tambah Catatan --}}
                                 <div x-show="openNote" x-transition class="mt-2">
-                                    <form action="{{ route('customer.cart.update') }}" method="POST" class="flex items-center gap-2">
+                                    <form action="{{ route('customer.cart.update') }}" method="POST" class="space-y-1">
                                         @csrf
                                         <input type="hidden" name="key" value="{{ $key }}">
                                         <input type="hidden" name="action" value="update_note">
                                         
-                                        <input type="text" name="catatan" 
-                                               value="{{ $catatan }}" 
-                                               placeholder="Contoh: Tanpa pedas, es sedikit..." 
-                                               class="w-full text-xs px-2.5 py-1.5 bg-stone-50 rounded border-2 border-stone-900 focus:outline-none focus:ring-1 focus:ring-[#4A2311]">
-                                               
-                                        <button type="submit" class="px-3 py-1.5 bg-[#4A2311] text-white text-xs font-bold rounded border-2 border-stone-900 shadow-[2px_2px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B] active:translate-x-[1px] active:translate-y-[1px] transition-all whitespace-nowrap">
-                                            Simpan
-                                        </button>
+                                        <div class="flex items-center gap-2">
+                                            <input type="text" name="catatan" 
+                                                   x-model="noteText"
+                                                   maxlength="255"
+                                                   placeholder="Contoh: Tanpa pedas, es sedikit..." 
+                                                   class="w-full text-xs px-2.5 py-1.5 bg-stone-50 rounded border-2 border-stone-900 focus:outline-none focus:ring-1 focus:ring-[#4A2311]">
+                                                   
+                                            <button type="submit" class="px-3 py-1.5 bg-[#4A2311] text-white text-xs font-bold rounded border-2 border-stone-900 shadow-[2px_2px_0_0_rgba(0,0,0,1)] hover:bg-[#8B5A2B] active:translate-x-[1px] active:translate-y-[1px] transition-all whitespace-nowrap">
+                                                Simpan
+                                            </button>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="text-[10px] font-bold" :class="noteText.length >= 255 ? 'text-red-600' : 'text-stone-400'" x-text="`${noteText.length}/255`"></span>
+                                        </div>
                                     </form>
                                 </div>
                             </div>
@@ -106,11 +112,12 @@
                                     <input type="hidden" name="key" value="{{ $key }}">
                                     <input type="hidden" name="action" value="update_qty">
                                     
-                                    <button type="submit" name="jumlah" :value="qty - 1" :disabled="qty <= 1"
-                                            :class="qty <= 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-stone-300 active:translate-y-0.5'"
-                                            class="w-8 h-8 bg-stone-200 rounded-lg font-bold border-2 border-stone-400 flex items-center justify-center">
-                                        −
-                                    </button>
+                                    @if($item['jumlah'] > 1)
+                                        <button type="submit" name="jumlah" :value="qty - 1"
+                                                class="w-8 h-8 bg-stone-200 hover:bg-stone-300 active:translate-y-0.5 rounded-lg font-bold border-2 border-stone-400 flex items-center justify-center">
+                                            −
+                                        </button>
+                                    @endif
 
                                     <input type="number" readonly :value="qty" class="w-12 text-center border-2 border-stone-400 rounded-lg px-2 py-1 font-bold bg-white">
 

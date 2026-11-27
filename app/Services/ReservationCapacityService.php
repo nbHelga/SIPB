@@ -70,16 +70,16 @@ class ReservationCapacityService
             ])
             ->get(['id', 'jml_org']);
 
-        $usedTables = $overlappingReservations->sum(function (Reservasi $reservasi): int {
+        $usedTables = $overlappingReservations->sum(function (Reservasi $reservasi) use ($guestsPerTable): int {
             $allocatedCount = (int) $reservasi->active_tables_count;
 
             return $allocatedCount > 0
                 ? $allocatedCount
-                : (int) ceil((int) $reservasi->jml_org / $guestsPerTable);
+                : (int) ceil((int) $reservasi->jml_org / max(1, $guestsPerTable));
         });
 
         $availableTables = max(0, $activeTableCount - $usedTables);
-        $estimatedTablesNeeded = (int) ceil(max(0, $guestCount) / $guestsPerTable);
+        $estimatedTablesNeeded = (int) ceil(max(0, $guestCount) / max(1, $guestsPerTable));
 
         $available = $activeTableCount > 0 && $estimatedTablesNeeded <= $availableTables;
         $reason = $activeTableCount < 1

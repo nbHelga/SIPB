@@ -16,6 +16,7 @@ class SystemSettings
         'table_default_capacity' => 4,
         'payment_status_poll_seconds' => 20,
         'admin_notification_poll_seconds' => 10,
+        'reservation_buffer_minutes' => 120,
     ];
 
     public function get(string $key): int

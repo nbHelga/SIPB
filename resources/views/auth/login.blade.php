@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Login - SIPB BigBang Eatery</title>
+    <title>Login - BigBang Eatery</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-stone-100 min-h-screen flex items-center justify-center p-4">
@@ -13,8 +13,8 @@
             <div class="w-20 h-20 bg-[#4A2311] rounded-full flex items-center justify-center text-white font-black text-3xl border-4 border-stone-900 shadow-[6px_6px_0_0_rgba(0,0,0,0.3)] mx-auto">
                 B
             </div>
-            <h1 class="text-2xl font-black mt-4">SIPB - BigBang Eatery</h1>
-            <p class="text-stone-500 text-sm">Sistem Informasi Pemesanan BigBang</p>
+            <h1 class="text-2xl font-black mt-4">BigBang Eatery</h1>
+            <p class="text-stone-500 text-sm">Silahkan login menggunakan username dan password yang Anda miliki</p>
         </div>
 
         <!-- Login Card -->
@@ -57,7 +57,7 @@
             </form>
         </div>
 
-        <p class="text-center text-stone-500 text-xs mt-6">SIPB &copy; {{ date('Y') }} BigBang Eatery</p>
+        <p class="text-center text-stone-500 text-xs mt-6">Aplikasi BigBang Eatery &copy; {{ date('Y') }}</p>
     </div>
 </body>
 </html>

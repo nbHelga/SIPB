@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Kelola Menu - SIPB')
+@section('title', 'Kelola Menu - BigBang Eatery')
 
 @section('content')
 <div class="flex gap-6">
@@ -252,14 +252,20 @@
             </div>
 
             <div>
-                <label class="mb-1 block text-sm font-bold">Deskripsi</label>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="block text-sm font-bold">Deskripsi</label>
+                    <span id="menuDescCounter" class="text-xs text-stone-500 font-medium">0/1000</span>
+                </div>
                 <textarea
+                    id="menuDeskripsi"
                     name="deskripsi"
                     rows="3"
                     maxlength="1000"
+                    oninput="updateMenuDescCounter()"
                     class="w-full rounded-lg border-2 border-stone-300 px-3 py-2 @error('deskripsi') border-red-500 @enderror disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-500 disabled:opacity-100"
                     @disabled($isKasir)
                 >{{ old('deskripsi') }}</textarea>
+                <p class="mt-1 text-xs text-stone-500">Maksimal 1000 karakter, opsional penjelasan komposisi atau rasa menu.</p>
                 @error('deskripsi') <p class="mt-1 text-sm font-semibold text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -378,6 +384,14 @@ function openDrawer(id) {
     window.dispatchEvent(new CustomEvent('open-drawer', { detail: id }));
 }
 
+function updateMenuDescCounter() {
+    const el = document.getElementById('menuDeskripsi');
+    const counter = document.getElementById('menuDescCounter');
+    if (el && counter) {
+        counter.textContent = `${el.value.length}/1000`;
+    }
+}
+
 function openMenuDrawer(menuId = null) {
     if (isKasir && menuId === null) return;
     const form = document.getElementById('menuForm');
@@ -390,6 +404,7 @@ function openMenuDrawer(menuId = null) {
         method.value = '';
         document.getElementById('menuFormMode').value = 'create';
         document.getElementById('menuId').value = '';
+        updateMenuDescCounter();
         openDrawer('menuDrawer');
         return;
     }
@@ -431,6 +446,7 @@ function openMenuDrawer(menuId = null) {
             form.elements.nama.value = menu.nama ?? '';
             form.elements.harga.value = menu.harga ?? '';
              form.elements.deskripsi.value = menu.deskripsi ?? '';
+            updateMenuDescCounter();
 
             setMenuCategory(menu.kategori ?? '');
 

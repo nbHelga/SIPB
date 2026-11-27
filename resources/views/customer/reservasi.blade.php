@@ -113,9 +113,15 @@
 
                 <!-- Keterangan -->
                 <div>
-                    <label class="block font-bold mb-1">Keterangan</label>
-                    <textarea name="keterangan" rows="3" placeholder="Misal: meja dekat jendela, acara ulang tahun, dll..."
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block font-bold">Keterangan Khusus</label>
+                        <span id="keteranganCounter" class="text-xs text-stone-500 font-medium">0/200</span>
+                    </div>
+                    <textarea id="keteranganInput" name="keterangan" rows="3" maxlength="200"
+                              oninput="document.getElementById('keteranganCounter').textContent = this.value.length + '/200'"
+                              placeholder="Misal: meja dekat jendela, acara ulang tahun, dll..."
                               class="w-full border-2 @error('keterangan') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">{{ old('keterangan', $prefill['keterangan'] ?? '') }}</textarea>
+                    <p class="text-xs text-stone-500 mt-1">Maksimal 200 karakter. Tuliskan permintaan khusus seperti area duduk atau dekorasi sederhana.</p>
                     @error('keterangan')
                         <p class="text-red-500 text-xs mt-1 font-bold">⚠️ {{ $message }}</p>
                     @enderror

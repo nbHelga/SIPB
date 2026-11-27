@@ -139,6 +139,21 @@ class TableController extends Controller
             $mejaStatusAwal[(string) $meja->id] = $status;
         }
 
+        $jumlahMejaAktif = $allMeja->where('is_active', true)->count();
+        $jumlahMejaNonaktif = $allMeja->where('is_active', false)->count();
+
+        /*
+         * Syarat reservasi dihitung "Sudah Dialokasi":
+         * 1. Pesanan terkait reservasi berstatus 'Confirmed' (sudah siap untuk alokasi meja).
+         * 2. Memiliki minimal satu meja aktif yang sudah di-plot pada tabel detail_reservasi
+         *    (array 'meja_ids' tidak kosong, karena sudah difilter hanya meja dengan is_active = true).
+         * Jika pesanan 'Confirmed' belum memiliki meja aktif di 'meja_ids', maka dihitung "Belum Dialokasi".
+         */
+        $jumlahReservasiSudahDialokasi = $reservasiConfirmed
+            ->filter(fn ($reservation) => !empty($reservation['meja_ids']))
+            ->count();
+        $jumlahReservasiBelumDialokasi = $reservasiConfirmed->count() - $jumlahReservasiSudahDialokasi;
+
         $canManageTables = strtolower(trim((string) auth()->user()?->status)) === 'admin';
 
         return view('admin.meja', compact(
@@ -147,7 +162,11 @@ class TableController extends Controller
             'lantaiList',
             'reservasiConfirmed',
             'mejaStatusAwal',
-            'canManageTables'
+            'canManageTables',
+            'jumlahMejaAktif',
+            'jumlahMejaNonaktif',
+            'jumlahReservasiSudahDialokasi',
+            'jumlahReservasiBelumDialokasi'
         ));
     }
 
@@ -339,9 +358,10 @@ class TableController extends Controller
                 $otherStart = Carbon::parse($other->jam_mulai);
                 $otherEnd = Carbon::parse($other->jam_selesai);
 
-                // Batas aman 120 menit: tepat 120 menit tidak dianggap bentrok.
-                $conflict = $start->lt($otherEnd->copy()->addMinutes(120))
-                    && $otherStart->lt($end->copy()->addMinutes(120));
+                // Batas aman buffer antarreservasi (default 120 menit)
+                $bufferMinutes = app(\App\Services\SystemSettings::class)->get('reservation_buffer_minutes');
+                $conflict = $start->lt($otherEnd->copy()->addMinutes($bufferMinutes))
+                    && $otherStart->lt($end->copy()->addMinutes($bufferMinutes));
 
                 if (!$conflict) {
                     continue;
@@ -353,7 +373,7 @@ class TableController extends Controller
 
                 if ($selectedTableIds->intersect($occupiedIds)->isNotEmpty()) {
                     throw ValidationException::withMessages([
-                        'meja_dipilih' => 'Meja yang dipilih bentrok dengan reservasi lain dalam rentang waktu tersebut.',
+                        'meja_dipilih' => 'Meja yang dipilih unavailable: sudah dialokasikan ke reservasi lain dalam rentang waktu tersebut.',
                     ]);
                 }
             }

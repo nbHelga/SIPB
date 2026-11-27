@@ -33,11 +33,19 @@ class PaymentController extends Controller
         if (now()->gte($deadline)) return back()->with('error', 'Batas waktu pembayaran telah habis.');
         $kind = $isReservation ? 'DP' : 'Full';
         $current = $order->pembayaran()->where('jenis', $kind)->latest('id')->first();
-        $targetMethod = $data['metode_pembayaran'] === 'Tunai' ? 'tunai' : 'other_qris';
-        if (strtolower((string) $current?->metode) === $targetMethod) return back()->with('error', 'Metode tersebut sudah digunakan.');
+        $targetMethod = $isReservation ? 'midtrans' : ($data['metode_pembayaran'] === 'Tunai' ? 'tunai' : 'other_qris');
+        if ($isReservation && $targetMethod === 'tunai') {
+            return back()->with('error', 'Pembayaran reservasi hanya dapat dilakukan secara digital/online.');
+        }
+        if ($isReservation && in_array(strtolower((string) $current?->metode), ['', 'midtrans'], true)) {
+            return back()->with('error', 'Anda belum memilih metode pembayaran. Silakan pilih metode pembayaran terlebih dahulu melalui tombol Lanjutkan Pembayaran.');
+        }
+        if (!$isReservation && strtolower((string) $current?->metode) === $targetMethod) {
+            return back()->with('error', 'Metode tersebut sudah digunakan.');
+        }
         if ($current?->status === 'Success') return back()->with('error', 'Pembayaran sudah berhasil.');
 
-        // Cancel active Midtrans transaction first so an old payment link cannot be paid after switching.
+        // 1. Jika beralih dari Midtrans ke metode lain, batalkan transaksi aktif di Midtrans terlebih dahulu.
         foreach ($order->pembayaran()->where('jenis', $kind)->where('status', 'Pending')->whereNotNull('midtrans_order_id')->get() as $old) {
             try {
                 app(MidtransConfigService::class)->configure();
@@ -46,25 +54,62 @@ class PaymentController extends Controller
                 if (in_array(strtolower((string) data_get($remote, 'transaction_status')), ['settlement', 'capture'], true)) {
                     return back()->with('error', 'Pembayaran lama sudah diproses. Muat ulang halaman untuk melihat statusnya.');
                 }
-                $old->update(['status' => 'Failed']);
+                $old->update(['status' => 'Failed', 'snap_token' => null]);
             } catch (\Throwable $e) {
                 Log::warning('Tidak dapat menutup pembayaran lama saat ganti metode.', ['payment_id' => $old->id, 'error' => $e->getMessage()]);
                 return back()->with('error', 'Pembayaran lama belum dapat ditutup. Coba kembali beberapa saat lagi.');
             }
         }
 
+        // 2. Tandai semua tagihan pending sebelumnya (termasuk tagihan Tunai) menjadi 'Failed' agar tidak menggantung ganda
+        $order->pembayaran()
+            ->where('jenis', $kind)
+            ->where('status', 'Pending')
+            ->update(['status' => 'Failed', 'snap_token' => null]);
+
         $amount = (int) ($current?->nominal ?? $order->total_harga);
         $payment = Pembayaran::create(['id_pesanan' => $order->id, 'jenis' => $kind, 'metode' => $targetMethod, 'nominal' => $amount, 'status' => 'Pending']);
-        if ($targetMethod === 'other_qris') {
+        if ($targetMethod !== 'tunai') {
             try {
                 app(MidtransConfigService::class)->configure();
                 $remainingMinutes = max(1, (int) ceil(now()->diffInSeconds($deadline) / 60));
-                $midtransId = 'ORDER-' . $order->id . '-' . Str::random(8);
+                $midtransId = ($isReservation ? 'RESERV-' . $order->reservasi->id : 'ORDER-' . $order->id) . '-' . Str::random(8);
                 $items = $isReservation ? [['id' => 'DP', 'price' => $amount, 'quantity' => 1, 'name' => 'DP Reservasi']] : $order->detailPesanan->map(fn ($d) => ['id' => (string) $d->id_menu, 'price' => (int) round($d->subtotal / max(1, $d->jumlah)), 'quantity' => $d->jumlah, 'name' => substr($d->menu?->nama ?? 'Menu', 0, 50)])->values()->all();
-                $token = Snap::getSnapToken(['transaction_details' => ['order_id' => $midtransId, 'gross_amount' => $amount], 'item_details' => $items, 'enabled_payments' => ['other_qris'], 'custom_expiry' => ['start_time' => now()->format('Y-m-d H:i:s O'), 'unit' => 'minute', 'duration' => $remainingMinutes]]);
+                
+                $enabledPayments = $isReservation
+                    ? ['other_qris', 'gopay', 'shopeepay', 'bca_va']
+                    : ['other_qris'];
+
+                $customerDetails = $isReservation ? [
+                    'first_name' => $order->reservasi->customer->nama,
+                    'phone' => $order->reservasi->customer->nomor_telp,
+                ] : [
+                    'first_name' => 'Meja ' . ($order->meja->nomor_meja ?? 'Tamu'),
+                ];
+
+                $returnUrl = $isReservation
+                    ? route('customer.reservasi.detail', ['kode_pesanan' => $kode_pesanan])
+                    : route('customer.order.detail', ['kode_pesanan' => $kode_pesanan]);
+
+                $token = Snap::getSnapToken([
+                    'transaction_details' => ['order_id' => $midtransId, 'gross_amount' => $amount],
+                    'item_details' => $items,
+                    'customer_details' => $customerDetails,
+                    'enabled_payments' => $enabledPayments,
+                    'custom_expiry' => [
+                        'start_time' => now()->format('Y-m-d H:i:s O'),
+                        'unit' => 'minute',
+                        'duration' => $remainingMinutes,
+                    ],
+                    'callbacks' => [
+                        'finish' => $returnUrl,
+                        'unfinish' => $returnUrl,
+                        'error' => $returnUrl,
+                    ],
+                ]);
                 $payment->update(['midtrans_order_id' => $midtransId, 'snap_token' => $token]);
             } catch (\Throwable $e) {
-                $payment->update(['status' => 'Failed']);
+                $payment->update(['status' => 'Failed', 'snap_token' => null]);
                 Log::error('Gagal menyiapkan token saat ganti metode pembayaran.', ['payment_id' => $payment->id, 'error' => $e->getMessage()]);
                 return back()->with('error', 'Pembayaran digital gagal disiapkan. Coba kembali.');
             }
@@ -182,13 +227,19 @@ class PaymentController extends Controller
                     : null;
 
                 if ($success) {
+                    $hasOtherSuccessfulSameKind = $pesanan->pembayaran()
+                        ->where('jenis', $lockedPayment->jenis)
+                        ->where('status', 'Success')
+                        ->whereKeyNot($lockedPayment->id)
+                        ->exists();
+
                     $lockedPayment->forceFill([
                         'status' => 'Success',
                         'metode' => $paymentMethod ?? $lockedPayment->metode,
                     ])->save();
 
-                    $orderCancelled =
-                        strtolower(trim((string) $pesanan->status)) === 'cancelled';
+                    $orderStatus = strtolower(trim((string) $pesanan->status));
+                    $orderCancelled = $orderStatus === 'cancelled';
 
                     // Jika pesanan sudah terlanjur dibatalkan (misal: akibat race condition dengan cron job
                     // auto-expire yang berjalan beberapa detik sebelum settlement Midtrans tiba):
@@ -247,49 +298,52 @@ class PaymentController extends Controller
                     }
 
                     // KASUS NORMAL / RESMI:
-                    // Jika Midtrans sudah mengonfirmasi settlement dan pesanan belum dibatalkan (status Pending/Waiting),
-                    // pembayaran SAH dan pesanan langsung diubah menjadi Reserved / Paid.
-                    // JANGAN PERNAH membatalkan pesanan jika Midtrans sudah menyatakan uang sukses masuk!
-                    $pesanan->forceFill([
-                        'status' => $jenis === 'dp' ? 'Reserved' : 'Paid',
-                    ])->save();
+                    // Hanya ubah status pesanan jika masih menunggu (Pending/Waiting) dan belum ada pembayaran sukses lain
+                    // pada jenis yang sama, agar tidak menurunkan status pesanan yang sudah Confirmed/Completed.
+                    if (
+                        !$hasOtherSuccessfulSameKind
+                        && in_array($orderStatus, ['pending', 'waiting'], true)
+                    ) {
+                        $pesanan->forceFill([
+                            'status' => $jenis === 'dp' ? 'Reserved' : 'Paid',
+                        ])->save();
 
-                    if ($reservasi && $jenis === 'dp') {
-                        $reservasiToNotify = Reservasi::with([
-                            'customer',
-                            'pesanan.pembayaran',
-                            'detailReservasi.meja',
-                        ])->find($reservasi->id);
+                        $pesanan->pembayaran()
+                            ->where('jenis', $lockedPayment->jenis)
+                            ->where('status', 'Pending')
+                            ->whereKeyNot($lockedPayment->id)
+                            ->update([
+                                'status' => 'Failed',
+                                'snap_token' => null,
+                            ]);
+
+                        if ($reservasi && $jenis === 'dp') {
+                            $reservasiToNotify = Reservasi::with([
+                                'customer',
+                                'pesanan.pembayaran',
+                                'detailReservasi.meja',
+                            ])->find($reservasi->id);
+                        }
+                    } elseif ($hasOtherSuccessfulSameKind) {
+                        Log::critical('Terdeteksi pembayaran Midtrans ganda yang berhasil untuk pesanan yang sama.', [
+                            'payment_id' => $lockedPayment->id,
+                            'midtrans_order_id' => $lockedPayment->midtrans_order_id,
+                            'pesanan_id' => $pesanan->id,
+                            'order_status' => $orderStatus,
+                        ]);
                     }
 
                     return;
                 }
 
+                // Webhook gagal (expire/deny/cancel/failure) hanya mengubah baris pembayaran spesifik
+                // yang cocok dengan midtrans_order_id menjadi Failed. Jangan menyentuh baris pembayaran baru
+                // ataupun membatalkan reservasi (pembatalan otomatis ditangani oleh scheduler).
                 $lockedPayment->forceFill([
                     'status' => 'Failed',
+                    'snap_token' => null,
                     'metode' => $paymentMethod ?? $lockedPayment->metode,
                 ])->save();
-
-                // Pesanan tetap pending sebelum deadline habis.
-                // Setelah deadline, batalkan pesanan dan semua tagihan pending.
-                if (
-                    $reservasi
-                    && strtolower(trim((string) $pesanan->status)) === 'pending'
-                    && now()->greaterThanOrEqualTo($reservasi->paymentDeadline())
-                ) {
-                    $hasSuccessfulDp = $pesanan->pembayaran()
-                        ->where('jenis', 'DP')
-                        ->where('status', 'Success')
-                        ->exists();
-
-                    if (!$hasSuccessfulDp) {
-                        $pesanan->forceFill(['status' => 'Cancelled'])->save();
-
-                        $pesanan->pembayaran()
-                            ->where('status', 'Pending')
-                            ->update(['status' => 'Failed']);
-                    }
-                }
             }, 3);
 
             // return response()->json(['message' => 'Notification processed'], 200);
@@ -559,8 +613,7 @@ class PaymentController extends Controller
             }
         }
 
-        // app(MidtransPaymentMethod::class)->syncSelfOrder($pesanan);
-
+        app(MidtransPaymentMethod::class)->syncSelfOrder($pesanan);
         $pesanan->refresh();
 
         $latest = $pesanan->pembayaran()
@@ -569,20 +622,17 @@ class PaymentController extends Controller
             ->latest('id')
             ->first();
 
+        // Jika pembayaran lama masih pending tetapi customer menekan ulangi pembayaran (misal expired di Midtrans),
+        // batalkan transaksi lama di Midtrans dan tandai Failed agar Snap token baru dapat digenerate
         if ($latest && strtolower(trim((string) $latest->status)) === 'pending') {
-            if ($latest->snap_token) {
-                return redirect()
-                    ->route('customer.order.detail', [
-                        'kode_pesanan' => $pesanan->kode_pesanan,
-                    ])
-                    ->with('open_midtrans', true);
+            try {
+                app(MidtransConfigService::class)->configure();
+                Transaction::cancel($latest->midtrans_order_id);
+            } catch (\Throwable $e) {
+                // Abaikan jika sudah cancel/expire di Midtrans
             }
-
-            return redirect()
-                ->route('customer.order.detail', [
-                    'kode_pesanan' => $pesanan->kode_pesanan,
-                ])
-                ->with('error', 'Pembayaran sedang disiapkan. Muat ulang halaman sebentar lagi.');
+            $latest->update(['status' => 'Failed', 'snap_token' => null]);
+            $latest = null;
         }
 
         $nominal = (int) ($latest?->nominal ?? $pesanan->total_harga);

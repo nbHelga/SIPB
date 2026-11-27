@@ -108,12 +108,18 @@
     <div
         x-data="{
             show: false,
+            title: 'Konfirmasi tindakan',
             message: '',
             formId: '',
+            confirmText: 'Ya, lanjutkan',
+            confirmColor: 'bg-red-600 border-red-900',
             init() {
                 window.addEventListener('component-confirm', (event) => {
+                    this.title = event.detail.title || 'Konfirmasi tindakan';
                     this.message = event.detail.message || 'Apakah Anda yakin?';
                     this.formId = event.detail.formId || '';
+                    this.confirmText = event.detail.confirmText || 'Ya, lanjutkan';
+                    this.confirmColor = event.detail.confirmColor || 'bg-red-600 border-red-900';
                     this.show = true;
                 });
             },
@@ -130,7 +136,7 @@
         aria-modal="true"
     >
         <div class="w-full max-w-sm rounded-2xl border-4 border-stone-900 bg-white p-5 shadow-[6px_6px_0_0_rgba(0,0,0,1)]">
-            <h3 class="text-lg font-black text-stone-900">Konfirmasi pembatalan</h3>
+            <h3 class="text-lg font-black text-stone-900" x-text="title"></h3>
             <p class="mt-2 text-sm text-stone-700" x-text="message"></p>
 
             <div class="mt-5 flex justify-end gap-3">
@@ -144,9 +150,10 @@
                 <button
                     type="button"
                     @click="confirm()"
-                    class="rounded-lg border-2 border-red-900 bg-red-600 px-4 py-2 font-bold text-white"
+                    :class="confirmColor"
+                    class="rounded-lg border-2 px-4 py-2 font-bold text-white transition active:translate-y-0.5"
+                    x-text="confirmText"
                 >
-                    Ya, batalkan
                 </button>
             </div>
         </div>
@@ -266,14 +273,14 @@
          x-transition:leave="transition ease-in duration-200"
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
-         class="fixed top-5 right-5 z-50 max-w-sm w-full pointer-events-auto">
+         class="fixed top-5 left-4 right-4 sm:left-auto sm:right-5 z-[120] sm:w-full max-w-sm mx-auto sm:mx-0 pointer-events-auto">
 
         <div class="{{ $theme['bg'] }} border-3 border-stone-900 rounded-xl p-4 shadow-[6px_6px_0_0_rgba(0,0,0,1)] flex items-start gap-3">
             {{-- Icon --}}
-            <span class="text-2xl leading-none select-none">{{ $theme['icon'] }}</span>
+            <span class="text-2xl leading-none select-none shrink-0">{{ $theme['icon'] }}</span>
 
             {{-- Pesan --}}
-            <div class="flex-1 font-bold text-stone-900 text-sm leading-snug">
+            <div class="flex-1 min-w-0 font-bold text-stone-900 text-sm leading-snug break-words">
                 <div class="font-black text-xs uppercase opacity-80 mb-0.5">{{ $theme['title'] }}</div>
                 <div>{{ $message }}</div>
             </div>

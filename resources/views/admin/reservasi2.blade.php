@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Kelola Reservasi - SIPB')
+@section('title', 'Kelola Reservasi - BigBang Eatery')
 
 @section('content')
 <!-- BUNGKUS DENGAN ALPINE DATA UNTUK STATE MODAL -->

@@ -146,7 +146,7 @@
                         ['route' => 'admin.meja', 'label' => 'Alokasi Meja', 'icon' => '🪑', 'access' => ['admin', 'kasir']],
                         ['route' => 'admin.reservasi', 'label' => 'Reservasi', 'icon' => '📅', 'access' => ['admin', 'kasir']],
                         ['route' => 'admin.rekapan', 'label' => 'Rekapan', 'icon' => '📋', 'access' => ['admin', 'kasir']],
-                        ['route' => 'admin.settings', 'label' => 'Pengaturan Sistem', 'icon' => '⚙️', 'access' => ['admin']],
+                        ['route' => 'admin.settings', 'label' => 'Pengaturan Aplikasi', 'icon' => '⚙️', 'access' => ['admin']],
                     ];
                 @endphp
 

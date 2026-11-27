@@ -208,7 +208,7 @@
 
         <div class="divider" style="margin-top: 15px;"></div>
         <div class="text-center" style="font-size: 10px; margin-top: 5px;">
-            -- Dicetak dari SIPB BigBang Eatery --
+            -- Dicetak dari Aplikasi BigBang Eatery --
         </div>
     </div>
 

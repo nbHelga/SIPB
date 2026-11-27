@@ -49,9 +49,14 @@
                 <input type="hidden" name="redirect" value="{{ route('customer.selforder', ['nomor_meja' => $nomorMeja]) }}">
 
                 {{-- FIELD CATATAN KHUSUS --}}
-                <div>
-                    <label class="block text-[11px] font-bold text-stone-700 mb-1">Catatan Khusus (Opsional):</label>
+                <div x-data="{ catatanText: '' }" x-effect="if (!showModal) catatanText = ''">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-[11px] font-bold text-stone-700">Catatan Khusus (Opsional):</label>
+                        <span class="text-[10px] font-bold" :class="catatanText.length >= 255 ? 'text-red-600' : 'text-stone-400'" x-text="`${catatanText.length}/255`"></span>
+                    </div>
                     <textarea name="catatan" 
+                              x-model="catatanText"
+                              maxlength="255"
                               placeholder="Contoh: Sangat pedas, es sedikit..." 
                               rows="2" 
                               class="w-full border-2 border-stone-300 rounded-lg p-1.5 text-xs focus:border-[#4A2311] focus:outline-none resize-none bg-stone-50 transition-colors"></textarea>

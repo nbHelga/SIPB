@@ -72,6 +72,23 @@ class Reservasi extends Model
         return $this->belongsTo(Pesanan::class, 'id_pesanan', 'id');
     }
 
+    // public function pembayaran()
+    // {
+    //     return $this->hasMany(Pembayaran::class, 'id_pesanan', 'id_pesanan');
+    // }
+
+    // public function latestPayment()
+    // {
+    //     return $this->hasOne(Pembayaran::class, 'id_pesanan', 'id_pesanan')->latestOfMany('id');
+    // }
+
+    // public function successfulPayment()
+    // {
+    //     return $this->hasOne(Pembayaran::class, 'id_pesanan', 'id_pesanan')
+    //         ->where('status', 'Success')
+    //         ->latestOfMany('id');
+    // }
+
     public function notifikasiWa()
     {
         return $this->hasMany(NotifikasiWa::class, 'id_reservasi', 'id');

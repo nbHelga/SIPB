@@ -132,6 +132,7 @@ class MidtransPaymentMethod
             if (!$success) {
                 $lockedPayment->update([
                     'status' => 'Failed',
+                    'snap_token' => null,
                     'metode' => $method ?? $lockedPayment->metode,
                 ]);
 

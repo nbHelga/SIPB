@@ -67,6 +67,38 @@
                     <button type="button" onclick="openReservationSnap()" class="w-full sm:w-auto rounded-xl border-2 border-stone-900 bg-[#4A2311] px-8 py-3.5 font-black text-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-[#8B5A2B] active:translate-y-1 active:shadow-none">
                         💳 Lanjutkan Pembayaran
                     </button>
+                    @if($statusPesanan === 'pending' && $withinPaymentWindow && $paymentStatus !== 'success')
+                        @if(!empty($hasSelectedPaymentMethod))
+                            <form id="form-change-payment-reservation" action="{{ route('customer.payment.change-method', $pesanan->kode_pesanan) }}" method="POST" class="hidden">
+                                @csrf
+                                <input type="hidden" name="metode_pembayaran" value="Midtrans">
+                            </form>
+                            <button
+                                type="button"
+                                onclick="window.dispatchEvent(new CustomEvent('component-confirm', {
+                                    detail: {
+                                        title: 'Ubah Metode Pembayaran',
+                                        message: 'Pilihan metode pembayaran Anda sebelumnya akan dibatalkan, dan Anda dapat memilih kembali metode pembayaran lain di Midtrans (QRIS, GoPay, ShopeePay, atau BCA VA). Lanjutkan?',
+                                        formId: 'form-change-payment-reservation',
+                                        confirmText: 'Ya, Ubah Metode',
+                                        confirmColor: 'bg-amber-600 border-amber-900'
+                                    }
+                                }))"
+                                class="w-full sm:w-auto rounded-xl border-2 border-stone-900 bg-amber-400 px-6 py-3.5 font-black text-stone-900 shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-amber-500 active:translate-y-1 active:shadow-none"
+                            >
+                                🔄 Ubah Metode Pembayaran
+                            </button>
+                        @else
+                            <button
+                                type="button"
+                                disabled
+                                title="Pilih metode pembayaran terlebih dahulu melalui tombol Lanjutkan Pembayaran"
+                                class="w-full sm:w-auto rounded-xl border-2 border-stone-300 bg-stone-200 px-6 py-3.5 font-bold text-stone-400 cursor-not-allowed shadow-none"
+                            >
+                                🔄 Ubah Metode Pembayaran
+                            </button>
+                        @endif
+                    @endif
                 @elseif($canStartPayment)
                     <form action="{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('customer.reservasi.retry_payment', now()->addHours(24), ['id' => $reservasi->id]) }}" method="POST" class="w-full sm:w-auto">
                         @csrf
@@ -78,16 +110,6 @@
                         <button type="submit" class="w-full sm:w-auto rounded-xl border-2 border-stone-900 bg-emerald-500 px-8 py-3.5 font-black text-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] transition-all hover:bg-emerald-600 active:translate-y-1 active:shadow-none">
                             🔄 Ulangi Pembayaran
                         </button>
-                    </form>
-                @endif
-                @if($statusPesanan === 'pending' && $withinPaymentWindow && $paymentStatus !== 'success')
-                    <form action="{{ route('customer.payment.change-method', $pesanan->kode_pesanan) }}" method="POST" class="flex items-center gap-2">
-                        @csrf
-                        <label for="reservation-payment-method" class="sr-only">Metode pembayaran baru</label>
-                        <select id="reservation-payment-method" name="metode_pembayaran" class="rounded-lg border-2 border-stone-400 bg-white px-3 py-2 font-bold">
-                            <option value="{{ strtolower((string) $paymentDp?->metode) === 'tunai' ? 'Midtrans' : 'Tunai' }}">{{ strtolower((string) $paymentDp?->metode) === 'tunai' ? 'Midtrans / QRIS' : 'Tunai' }}</option>
-                        </select>
-                        <button class="rounded-lg border-2 border-stone-900 bg-white px-4 py-2 font-bold">Ubah Metode Pembayaran</button>
                     </form>
                 @endif
             </div>
@@ -225,16 +247,18 @@
                             ({{ \Carbon\Carbon::parse($reservasi->jam_mulai)->format('H.i') }} - {{ \Carbon\Carbon::parse($reservasi->jam_selesai)->format('H.i') }} WIB)
                         </span>
                     </div>
-                    <div class="flex items-start justify-between gap-3 border-b border-amber-900/30 pb-2.5">
-                        <span class="shrink-0 text-stone-300 font-medium">Catatan Khusus</span>
-                        <div class="max-h-24 min-w-0 max-w-[65%] overflow-y-auto whitespace-pre-line break-words pr-1 text-left text-stone-200 italic">{{ trim($reservasi->keterangan ?? '') ?: '-' }}</div>
+                    <div class="space-y-1.5 border-b border-amber-900/30 pb-2.5">
+                        <span class="block text-stone-300 font-medium">Catatan Khusus</span>
+                        <div class="max-h-24 min-w-0 w-full overflow-y-auto whitespace-pre-line break-words text-left text-stone-200 italic text-xs md:text-sm bg-amber-950/40 p-2.5 rounded-lg border border-amber-900/50">
+                            {{ trim($reservasi->keterangan ?? '') ?: '-' }}
+                        </div>
                     </div>
                     <div class="flex items-center justify-between pb-2.5 border-b border-amber-900/30">
                         <span class="text-stone-300 font-medium">Uang Muka (DP)</span>
                         <div class="text-right">
                             <span class="font-bold text-white">Rp {{ number_format($nominalDp, 0, ',', '.') }}</span>
                             @if($statusPembayaranDp === 'success')
-                                <span class="ml-1.5 inline-block px-2 py-0.5 text-[10px] font-black bg-emerald-500/30 text-emerald-200 rounded border border-emerald-400/40">✓ Lunas</span>
+                                <span class="ml-1.5 inline-block px-2 py-0.5 text-[10px] font-black bg-emerald-500/30 text-emerald-200 rounded border border-emerald-400/40">✓ Lunas ({{ match(strtolower($paymentDp?->metode ?? '')) { 'qris', 'other_qris' => 'QRIS', 'bca_va' => 'BCA VA', 'gopay' => 'GoPay', 'shopeepay' => 'ShopeePay', default => ucwords(str_replace('_', ' ', $paymentDp?->metode ?? 'Midtrans')) } }})</span>
                             @elseif($statusPembayaranDp === 'failed')
                                 <span class="ml-1.5 inline-block px-2 py-0.5 text-[10px] font-black bg-red-500/30 text-red-200 rounded border border-red-400/40">Gagal</span>
                             @else
@@ -242,19 +266,50 @@
                             @endif
                         </div>
                     </div>
+                    @if($pelunasanPayment)
+                        <div class="flex items-center justify-between pb-2.5 border-b border-amber-900/30">
+                            <span class="text-stone-300 font-medium">Pelunasan (Di Resto)</span>
+                            <div class="text-right">
+                                <span class="font-bold text-white">Rp {{ number_format($pelunasanPayment->nominal, 0, ',', '.') }}</span>
+                                <span class="ml-1.5 inline-block px-2 py-0.5 text-[10px] font-black bg-emerald-500/30 text-emerald-200 rounded border border-emerald-400/40">✓ Lunas ({{ match(strtolower($pelunasanPayment->metode ?? '')) { 'qris', 'other_qris' => 'QRIS', 'bca_va' => 'BCA VA', 'gopay' => 'GoPay', 'shopeepay' => 'ShopeePay', 'transfer_bank' => 'Transfer Bank', default => ucwords(str_replace('_', ' ', $pelunasanPayment->metode ?? '')) } }})</span>
+                            </div>
+                        </div>
+                    @endif
                 </div>
             </div>
 
             <div class="pt-4 border-t border-amber-900/60">
-                <div class="bg-amber-500/10 p-4 rounded-xl border-2 border-amber-500/30 flex justify-between items-center shadow-[inset_0_0_10px_rgba(0,0,0,0.2)]">
-                    <div>
-                        <span class="text-xs md:text-sm text-amber-200 font-bold block">Sisa Pelunasan (Di Resto)</span>
-                        <span class="text-[10px] md:text-xs text-amber-300/70">Total Menu dikurangi DP</span>
+                @if($pelunasanPayment)
+                    <div class="bg-emerald-500/10 p-4 rounded-xl border-2 border-emerald-500/30 flex justify-between items-center shadow-[inset_0_0_10px_rgba(0,0,0,0.2)]">
+                        <div>
+                            <span class="text-xs md:text-sm text-emerald-200 font-bold block">Sisa Pelunasan (Di Resto)</span>
+                            <span class="text-[10px] md:text-xs text-emerald-300/70">Lunas via {{ match(strtolower($pelunasanPayment->metode ?? '')) { 'qris', 'other_qris' => 'QRIS', 'bca_va' => 'BCA VA', 'gopay' => 'GoPay', 'shopeepay' => 'ShopeePay', 'transfer_bank' => 'Transfer Bank', default => ucwords(str_replace('_', ' ', $pelunasanPayment->metode ?? '')) } }}</span>
+                        </div>
+                        <span class="text-xl md:text-2xl font-black text-emerald-300">
+                            Rp 0
+                        </span>
                     </div>
-                    <span class="text-xl md:text-2xl font-black text-amber-300">
-                        Rp {{ number_format($sisaTagihan, 0, ',', '.') }}
-                    </span>
-                </div>
+                @elseif($statusPembayaranDp === 'success' && $sisaTagihan == 0)
+                    <div class="bg-emerald-500/10 p-4 rounded-xl border-2 border-emerald-500/30 flex justify-between items-center shadow-[inset_0_0_10px_rgba(0,0,0,0.2)]">
+                        <div>
+                            <span class="text-xs md:text-sm text-emerald-200 font-bold block">Sisa Pelunasan (Di Resto)</span>
+                            <span class="text-[10px] md:text-xs text-emerald-300/70">Lunas penuh saat pembayaran DP</span>
+                        </div>
+                        <span class="text-xl md:text-2xl font-black text-emerald-300">
+                            Rp 0
+                        </span>
+                    </div>
+                @else
+                    <div class="bg-amber-500/10 p-4 rounded-xl border-2 border-amber-500/30 flex justify-between items-center shadow-[inset_0_0_10px_rgba(0,0,0,0.2)]">
+                        <div>
+                            <span class="text-xs md:text-sm text-amber-200 font-bold block">Sisa Pelunasan (Di Resto)</span>
+                            <span class="text-[10px] md:text-xs text-amber-300/70">Total Menu dikurangi DP</span>
+                        </div>
+                        <span class="text-xl md:text-2xl font-black text-amber-300">
+                            Rp {{ number_format($sisaTagihan, 0, ',', '.') }}
+                        </span>
+                    </div>
+                @endif
             </div>
         </div>
 
@@ -279,7 +334,7 @@
                                     <div class="min-w-0">
                                         <p class="font-black text-xs md:text-sm text-stone-900 truncate">{{ $detail->menu->nama }} <span class="text-stone-500 ml-1">({{ $detail->jumlah }}x)</span></p>
                                         @if($detail->catatan)
-                                            <p class="text-[10px] md:text-xs text-amber-800 font-medium italic truncate mt-0.5">💬 {{ $detail->catatan }}</p>
+                                            <div class="mt-0.5 max-h-14 overflow-y-auto overflow-x-hidden break-words whitespace-pre-line pr-1 text-[10px] md:text-xs text-amber-800 font-medium italic scrollbar-thin scrollbar-thumb-stone-300">💬 {{ trim($detail->catatan) }}</div>
                                         @endif
                                     </div>
                                 </div>
@@ -397,7 +452,7 @@
                 onSuccess: function () { window.reservationSnapOpen = false; window.location.reload(); },
                 onPending: function () { window.reservationSnapOpen = false; window.location.reload(); },
                 onError: function () { window.reservationSnapOpen = false; window.location.reload(); },
-                onClose: function () { window.reservationSnapOpen = false; }
+                onClose: function () { window.reservationSnapOpen = false; window.location.reload(); }
             });
         }
         document.addEventListener('DOMContentLoaded', function () {

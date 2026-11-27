@@ -207,13 +207,47 @@
                 <td>Sisa Tagihan</td>
                 <td class="text-right">Rp {{ number_format($sisa, 0, ',', '.') }}</td>
             </tr>
+        @elseif($reservasi)
+            {{-- Reservasi Customer (Pelunasan / Completed) --}}
+            @if($dp > 0)
+                <tr>
+                    <td>DP Masuk</td>
+                    <td class="text-right">Rp {{ number_format($dp, 0, ',', '.') }}</td>
+                </tr>
+            @endif
+            @php
+                $pelunasan = $pembayaranSukses
+                    ->where('jenis', 'Pelunasan')
+                    ->sortByDesc('id')
+                    ->first();
+            @endphp
+            @if($pelunasan)
+                <tr>
+                    <td>Pelunasan ({{ ucfirst((string) $pelunasan->metode) }})</td>
+                    <td class="text-right">Rp {{ number_format($pelunasan->nominal, 0, ',', '.') }}</td>
+                </tr>
+                @if(strtolower((string) $pelunasan->metode) === 'tunai')
+                    @if($pelunasan->uang_diterima !== null)
+                        <tr>
+                            <td>Tunai Diterima</td>
+                            <td class="text-right">Rp {{ number_format($pelunasan->uang_diterima, 0, ',', '.') }}</td>
+                        </tr>
+                    @endif
+                    @if($pelunasan->uang_kembali !== null)
+                        <tr>
+                            <td>Kembali</td>
+                            <td class="text-right">Rp {{ number_format($pelunasan->uang_kembali, 0, ',', '.') }}</td>
+                        </tr>
+                    @endif
+                @endif
+            @endif
         @endif
         
-        {{-- Jika ada atribut uang diterima & kembalian (untuk self order tunai) --}}
-        @if($pembayaranTunai)
+        {{-- Jika ada atribut uang diterima & kembalian (untuk pesanan non-reservasi / self order tunai) --}}
+        @if(!$reservasi && $pembayaranTunai)
             @if($pembayaranTunai->uang_diterima !== null)
                 <tr>
-                    <td>Tunai</td>
+                    <td>Tunai Diterima</td>
                     <td class="text-right">
                         Rp {{ number_format($pembayaranTunai->uang_diterima, 0, ',', '.') }}
                     </td>

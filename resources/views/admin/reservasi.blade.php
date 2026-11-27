@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Kelola Reservasi - SIPB')
+@section('title', 'Kelola Reservasi - BigBang Eatery')
 
 @section('content')
 <div
@@ -219,11 +219,13 @@
                             Status Saat Ini: {{ $currentStatus }}
                         </span>
 
-                        <a target="_blank"
-                            href="{{ route('admin.reservasi.nota', ['id' => $selectedReservasi->id, 'jenis' => 'reservation_customer']) }}"
-                            class="inline-block rounded-lg border-2 border-stone-900 bg-white px-3 py-2 font-bold shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] text-sm active:translate-y-1 active:shadow-none transition-all">
-                                Cetak Nota Customer
-                        </a>
+                        @if($currentStatus === 'completed')
+                            <a target="_blank"
+                                href="{{ route('admin.reservasi.nota', ['id' => $selectedReservasi->id, 'jenis' => 'reservation_customer']) }}"
+                                class="inline-block rounded-lg border-2 border-stone-900 bg-white px-3 py-2 font-bold shadow-[3px_3px_0_0_rgba(0,0,0,0.2)] text-sm active:translate-y-1 active:shadow-none transition-all">
+                                    Cetak Nota Customer
+                            </a>
+                        @endif
                     @endif
                 </div>
 

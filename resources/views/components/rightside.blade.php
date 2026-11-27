@@ -46,6 +46,14 @@
                         <span class="text-stone-500">MANAGED BY</span>
                         <span class="font-bold">{{ $item->user->username ?? 'Kasir' }}</span> 
                     </div>
+                    @php
+                        $paymentSelf = $item->pembayaran?->sortByDesc('id')->first();
+                        $metodeSelf = $paymentSelf ? ucwords(str_replace('_', ' ', $paymentSelf->metode)) : '-';
+                    @endphp
+                    <div class="flex justify-between border-t border-stone-100 pt-1">
+                        <span class="text-stone-500">METODE BAYAR</span>
+                        <span class="font-bold uppercase text-stone-800">{{ $metodeSelf }}</span>
+                    </div>
                 </div>
             </div>
 
@@ -176,6 +184,9 @@
                         $totalBiaya = $item->pesanan->total_harga ?? 0;
                         $dpBayar = $item->dp_bayar ?? 0;
                         $sisaPelunasan = max(0, $totalBiaya - $dpBayar);
+                        $pembayaranSuksesList = $item->pesanan?->pembayaran?->where('status', 'Success') ?? collect();
+                        $dpSuccessPayment = $pembayaranSuksesList->where('jenis', 'DP')->sortByDesc('id')->first();
+                        $pelunasanPayment = $pembayaranSuksesList->where('jenis', 'Pelunasan')->sortByDesc('id')->first();
                     @endphp
                     <div class="space-y-2 text-sm">
                         <div class="flex justify-between">
@@ -184,8 +195,22 @@
                         </div>
                         <div class="flex justify-between">
                             <span class="text-stone-500">DP Terbayar</span>
-                            <span class="font-bold text-emerald-700">Rp {{ number_format($dpBayar, 0, ',', '.') }}</span>
+                            <span class="font-bold text-emerald-700">
+                                Rp {{ number_format($dpBayar, 0, ',', '.') }}
+                                @if($dpSuccessPayment)
+                                    <span class="text-xs font-normal text-stone-500">({{ ucwords(str_replace('_', ' ', $dpSuccessPayment->metode)) }})</span>
+                                @endif
+                            </span>
                         </div>
+                        @if($pelunasanPayment)
+                            <div class="flex justify-between">
+                                <span class="text-stone-500">Pelunasan</span>
+                                <span class="font-bold text-blue-700">
+                                    Rp {{ number_format($pelunasanPayment->nominal, 0, ',', '.') }}
+                                    <span class="text-xs font-normal text-stone-500">({{ ucwords(str_replace('_', ' ', $pelunasanPayment->metode)) }})</span>
+                                </span>
+                            </div>
+                        @endif
                         <div class="flex justify-between font-bold text-base border-t border-stone-200 pt-2">
                             <span class="text-stone-800">Sisa Pelunasan di Resto</span>
                             <span class="{{ $sisaPelunasan > 0 ? 'text-[#4A2311]' : 'text-emerald-700' }}">
