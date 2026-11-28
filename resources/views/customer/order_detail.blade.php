@@ -8,7 +8,7 @@
 
     @if($st === 'pending' && !empty($snapToken) && !$isCashPayment)
         <script src="{{ $midtransProduction ? 'https://app.midtrans.com/snap/snap.js' : 'https://app.sandbox.midtrans.com/snap/snap.js' }}"
-            data-client-key="{{ config('midtrans.client_key', env('MIDTRANS_CLIENT_KEY')) }}"></script>
+            data-client-key="{{ config('services.midtrans.client_key') }}"></script>
 
         <script>
             function openOrderSnap() {
@@ -72,7 +72,7 @@
                 @endif
             </p>
 
-            @if(!($statusPembayaran === 'pending' && !empty($snapToken)) && !$canRetryPayment)
+            @if(!$isCashPayment && !($statusPembayaran === 'pending' && !empty($snapToken)) && !$canRetryPayment)
                 <p class="mt-4 text-sm font-bold text-amber-900">
                     Status pembayaran sedang diperbarui. Muat ulang halaman beberapa saat lagi.
                 </p>

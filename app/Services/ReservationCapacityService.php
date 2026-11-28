@@ -40,7 +40,7 @@ class ReservationCapacityService
             ->count();
         $guestsPerTable = self::guestsPerTable();
         $totalGuestCapacity = $activeTableCount * $guestsPerTable;
-        $pendingCutoff = now('UTC')->subMinutes(app(SystemSettings::class)->get('reservation_dp_minutes'));
+        $pendingCutoff = now()->subMinutes(app(SystemSettings::class)->get('reservation_dp_minutes'));
 
         $overlappingReservations = Reservasi::query()
             ->whereDate('tanggal', $date)
@@ -49,17 +49,21 @@ class ReservationCapacityService
             ->when($excludeReservationId, fn (Builder $query) =>
                 $query->whereKeyNot($excludeReservationId)
             )
-            ->whereHas('pesanan', function (Builder $orders) use ($pendingCutoff) {
-                $orders->where(function (Builder $active) use ($pendingCutoff) {
-                    $active->whereIn('status', ['Reserved', 'Confirmed', 'Processing', 'Waiting'])
-                        ->orWhere(function (Builder $pending) use ($pendingCutoff) {
-                            $pending->where('status', 'Pending')
-                                    ->where('created_at', '>=', $pendingCutoff)
-                                    ->whereHas('pembayaran', function (Builder $payments) {
-                                        $payments->where('jenis', 'DP')
-                                            ->where('status', 'Pending');
-                                    });
+            ->where(function (Builder $query) use ($pendingCutoff) {
+                $query->whereHas('pesanan', function (Builder $orders) {
+                    $orders->whereIn('status', ['Reserved', 'Confirmed', 'Processing', 'Waiting']);
+                })->orWhere(function (Builder $pending) use ($pendingCutoff) {
+                    $pending->whereHas('pesanan', function (Builder $orders) {
+                        $orders->where('status', 'Pending');
+                    })->where(function (Builder $time) use ($pendingCutoff) {
+                        $time->where(function (Builder $approved) use ($pendingCutoff) {
+                            $approved->whereNotNull('approved_at')
+                                ->where('approved_at', '>=', $pendingCutoff);
+                        })->orWhere(function (Builder $regular) use ($pendingCutoff) {
+                            $regular->whereNull('approved_at')
+                                ->where('created_at', '>=', $pendingCutoff);
                         });
+                    });
                 });
             })
             ->withCount([

@@ -16,7 +16,7 @@
     $minimumTotal = max(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), (int) $minimumTotal);
     $minimumWarning = $isEdit
         ? 'Total menu tidak boleh kurang dari DP yang dibayar: Rp ' . number_format($minimumTotal, 0, ',', '.') . '.'
-        : 'Minimal pemesanan menu adalah Rp 50.000.';
+        : 'Minimal pemesanan menu adalah Rp ' . number_format($minimumTotal, 0, ',', '.') . '.';
 @endphp
 
 

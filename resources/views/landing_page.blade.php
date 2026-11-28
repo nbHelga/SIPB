@@ -261,7 +261,7 @@
 
         <div class="font-serif italic text-stone-300 text-xs sm:text-sm md:text-base mb-6 md:mb-8">
             <p>Setiap Hari &nbsp;&nbsp;<span class="not-italic text-amber-400 font-sans block sm:inline mt-1 sm:mt-0">15.00 - 00.00 WIB</span></p>
-            <p class="mt-2 text-[11px] sm:text-xs not-italic font-sans">Reservasi mulai H+1. Reservasi lebih dari 10 orang perlu persetujuan admin.</p>
+            <p class="mt-2 text-[11px] sm:text-xs not-italic font-sans">Reservasi mulai H+1. Reservasi lebih dari {{ app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') }} orang perlu persetujuan admin.</p>
         </div>
 
         {{-- Form Pengecekan Reservasi --}}
@@ -323,7 +323,7 @@
 
             <div id="largeReservationNotice" class="hidden mt-4 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-left text-sm text-amber-950" role="alert">
                 <p id="largeReservationMessage" class="font-bold"></p>
-                <p class="mt-1">Reservasi lebih dari 10 orang memerlukan persetujuan admin untuk penyesuaian meja. Anda dapat melanjutkan ke formulir atau menghubungi admin terlebih dahulu.</p>
+                <p class="mt-1">Reservasi lebih dari {{ app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') }} orang memerlukan persetujuan admin untuk penyesuaian meja. Anda dapat melanjutkan ke formulir atau menghubungi admin terlebih dahulu.</p>
                 <div class="mt-3 flex flex-wrap gap-2">
                     <button type="button" id="continueLargeReservation" class="rounded-lg bg-amber-600 px-4 py-2 font-bold text-white">Lanjut ke formulir</button>
                     <a href="https://wa.me/6285168170080" target="_blank" rel="noopener" class="rounded-lg border border-amber-700 bg-white px-4 py-2 font-bold text-amber-900">Hubungi admin</a>
@@ -505,7 +505,7 @@
                 if (data.status === 'success') {
                     if (data.large_reservation) {
                         checkedRedirectUrl = data.redirect_url;
-                        largeMessage.innerText = `Reservasi Anda untuk ${data.guest_count} orang melebihi batas reservasi reguler (10 orang).`;
+                        largeMessage.innerText = `Reservasi Anda untuk ${data.guest_count} orang melebihi batas reservasi reguler ({{ app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') }} orang).`;
                         largeNotice.classList.remove('hidden');
                     } else {
                         window.location.href = data.redirect_url;

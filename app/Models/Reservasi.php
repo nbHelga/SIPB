@@ -16,6 +16,7 @@ class Reservasi extends Model
         'jam_selesai', 
         'jml_org', 
         'keterangan', 
+        'approved_at',
         'cancellation_reason',
         'dp_forfeited',
         'rejection_reason',
@@ -30,9 +31,6 @@ class Reservasi extends Model
         // 'jam_selesai' => 'datetime:H:i', // DIHAPUS
         // 'dp_bayar'   => 'decimal:2',
         'jml_org'    => 'integer',
-        // 'status_notif' => 'boolean',
-        'customer_notif' => 'boolean',
-        'admin_notif' => 'boolean',
         'dp_forfeited' => 'boolean',
     ];
 
@@ -71,23 +69,6 @@ class Reservasi extends Model
     {
         return $this->belongsTo(Pesanan::class, 'id_pesanan', 'id');
     }
-
-    // public function pembayaran()
-    // {
-    //     return $this->hasMany(Pembayaran::class, 'id_pesanan', 'id_pesanan');
-    // }
-
-    // public function latestPayment()
-    // {
-    //     return $this->hasOne(Pembayaran::class, 'id_pesanan', 'id_pesanan')->latestOfMany('id');
-    // }
-
-    // public function successfulPayment()
-    // {
-    //     return $this->hasOne(Pembayaran::class, 'id_pesanan', 'id_pesanan')
-    //         ->where('status', 'Success')
-    //         ->latestOfMany('id');
-    // }
 
     public function notifikasiWa()
     {
@@ -129,23 +110,16 @@ class Reservasi extends Model
         $isLargeReservation = (int) $this->jml_org > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests');
         $orderStatus = strtolower(trim((string) ($order?->status ?? '')));
 
-        // Reservasi skala besar yang masih menunggu persetujuan tidak memiliki batas waktu pembayaran
+        // Reservasi skala besar yang masih menunggu persetujuan tidak memiliki batas waktu pembayaran.
         if ($isLargeReservation && $orderStatus === 'waiting') {
             return now()->addYears(100);
         }
 
-        $payment = $order?->pembayaran()
-            ->where('jenis', 'DP')
-            ->latest('id')
-            ->first();
-
         if ($isLargeReservation) {
-            // Untuk skala besar: batas waktu dihitung FIX sejak saat reservasi disetujui admin ($order->updated_at).
-            // Ulangi pembayaran (retry) TIDAK mereset batas waktu ini; pelanggan hanya menggunakan sisa waktu yang ada.
-            $deadlineStart = $order?->updated_at ?? $this->updated_at ?? $this->created_at ?? now();
+            // Skala besar: dihitung FIX sejak approved_at (tidak tergeser saat ubah menu/retry).
+            $deadlineStart = $this->approved_at ?? $order?->updated_at ?? $this->created_at ?? now();
         } else {
-            // Skala kecil (<=10 pax): batas waktu dihitung FIX sejak reservasi dibuat ($order->created_at / $this->created_at).
-            // Ulangi pembayaran (retry) TIDAK mereset batas waktu ini.
+            // Skala reguler: dihitung FIX sejak pesanan/reservasi dibuat.
             $deadlineStart = $order?->created_at ?? $this->created_at ?? now();
         }
 

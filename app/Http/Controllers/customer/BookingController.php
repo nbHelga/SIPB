@@ -8,6 +8,7 @@ use App\Services\MidtransPaymentMethod;
 use App\Services\ReservationCapacityService;
 use App\Services\FonnteService;
 use App\Services\MidtransConfigService;
+use App\Services\SystemSettings;
 use App\Models\Menu;
 use App\Models\Pesanan;
 use App\Models\DetailPesanan;
@@ -48,14 +49,7 @@ class BookingController extends Controller
         return Reservasi::query()
             ->where('id_customer', $customer->id)
             ->whereHas('pesanan', function ($query) {
-                $query->where('status', 'Waiting')
-                    ->orWhere(function ($q) {
-                        $q->where('status', 'Pending')
-                          ->whereHas('pembayaran', function ($payment) {
-                              $payment->where('jenis', 'DP')
-                                  ->where('status', 'Pending');
-                          });
-                    });
+                $query->whereIn('status', ['Waiting', 'Pending']);
             })
             ->latest('id')
             ->first();
@@ -248,7 +242,7 @@ class BookingController extends Controller
 
     private function reservationPaymentWindowMinutes(): int
     {
-        return app(\App\Services\SystemSettings::class)->get('reservation_dp_minutes');
+        return app(SystemSettings::class)->get('reservation_dp_minutes');
     }
 
     private function reservationDeadline(Reservasi $reservasi): Carbon
@@ -327,12 +321,13 @@ class BookingController extends Controller
             'kode_pesanan' => $reservasi->pesanan->kode_pesanan,
         ]);
         $date = Carbon::parse($reservasi->tanggal, 'Asia/Jakarta')->locale('id')->translatedFormat('d M Y');
+        $deadlineMinutes = $this->reservationPaymentWindowMinutes();
 
         if (strtolower(trim((string) $reservasi->pesanan?->status)) === 'pending') {
-$message = "✅ *Reservasi Disetujui!*\n\n"
+            $message = "✅ *Reservasi Disetujui!*\n\n"
                 . "Halo *{$reservasi->customer->nama}*, reservasi Anda telah disetujui.\n\n"
                 . "📅 *{$date}* | *" . date('H.i', strtotime($reservasi->jam_mulai)) . " WIB*\n\n"
-                . "Silakan buka detail reservasi dan tekan *Mulai Pembayaran DP*. Batas waktu pembayaran mulai dihitung setelah pembayaran dimulai.\n\n"
+                . "Silakan buka detail reservasi dan tekan *Mulai Pembayaran DP*. Batas waktu pembayaran (*{$deadlineMinutes} menit*) mulai dihitung sejak reservasi ini disetujui.\n\n"
                 . "Detail reservasi: <{$detailUrl}>";
         } else {
             $reason = $reservasi->rejection_reason ?: 'Silakan hubungi admin untuk informasi.';
@@ -673,7 +668,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             }
         }
 
-        $requiresApproval = (int) ($prefill['jml_org'] ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests');
+        $requiresApproval = (int) ($prefill['jml_org'] ?? 0) > app(SystemSettings::class)->get('reservation_regular_max_guests');
         $maxGuests = ReservationCapacityService::maxGuestsLimit();
 
         return view('customer.reservasi', compact('menus', 'prefill', 'requiresApproval', 'maxGuests'));
@@ -688,12 +683,6 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         $categories = Menu::where('status', 'open')->distinct()->orderBy('kategori')->pluck('kategori');
 
         return view('customer.reservation_menu', compact('menus', 'categories'));
-    }
-
-    public function reservationMenuDetail(int $id)
-    {
-        $menu = Menu::where('is_reservable', true)->findOrFail($id);
-        return view('customer.reservation_menu_detail', compact('menu'));
     }
 
     // TAHAP 1: FORM KE SESSION DRAFT (BELUM MASUK DB)
@@ -728,7 +717,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 ->withInput();
         }
 
-        $capacity = (int) $validated['jml_org'] > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') ? ['available' => true] : app(ReservationCapacityService::class)->check(
+        $capacity = (int) $validated['jml_org'] > app(SystemSettings::class)->get('reservation_regular_max_guests') ? ['available' => true] : app(ReservationCapacityService::class)->check(
             $validated['tanggal'], $validated['jam_mulai'], $validated['jam_selesai'], (int) $validated['jml_org']
         );
 
@@ -774,9 +763,10 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         // =========================================================================
         // KONDISI 2 (AKTIF): WAJIB PESAN MENU MINIMAL Rp 50.000 SAAT BOOKING
         // =========================================================================
-        if ($totalHargaMenu < app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp')) {
+        $minDp = app(SystemSettings::class)->get('reservation_minimum_dp');
+        if ($totalHargaMenu < $minDp) {
             return back()
-                ->withErrors(['menu' => 'Minimal total pemesanan menu adalah Rp 50.000 untuk dapat melanjutkan reservasi.'])
+                ->withErrors(['menu' => 'Minimal total pemesanan menu adalah Rp ' . number_format($minDp, 0, ',', '.') . ' untuk dapat melanjutkan reservasi.'])
                 ->withInput();
         }
 
@@ -832,7 +822,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         $hasMenuChanges = false;
         $menuChangeMessages = [];
 
-        $capacity = (int) $draft['jml_org'] > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') ? ['available' => true] : app(ReservationCapacityService::class)->check(
+        $capacity = (int) $draft['jml_org'] > app(SystemSettings::class)->get('reservation_regular_max_guests') ? ['available' => true] : app(ReservationCapacityService::class)->check(
             $draft['tanggal'],
             $draft['jam_mulai'],
             $draft['jam_selesai'],
@@ -859,9 +849,10 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         )));
         $hasMenuChanges = count($menuChangeMessages) > 0;
 
-        if ($totalHargaMenu < app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp')) {
+        $minDp = app(SystemSettings::class)->get('reservation_minimum_dp');
+        if ($totalHargaMenu < $minDp) {
             $hasMenuChanges = true;
-            $menuChangeMessages[] = 'Total menu reservasi harus minimal Rp 50.000.';
+            $menuChangeMessages[] = 'Total menu reservasi harus minimal Rp ' . number_format($minDp, 0, ',', '.') . '.';
         }
 
         // Cek apakah customer sudah pernah membuat reservasi yang sama dan masih Pending
@@ -948,22 +939,25 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
 
         $totalHargaMenu = (int) $quoteReview['total'];
 
-        if ($totalHargaMenu < app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp')) {
+        $minDp = app(SystemSettings::class)->get('reservation_minimum_dp');
+        $formattedMinDp = number_format($minDp, 0, ',', '.');
+
+        if ($totalHargaMenu < $minDp) {
             return redirect()->route('customer.reservasi.payment')
-                ->with('error', 'Total menu reservasi harus minimal Rp 50.000.');
+                ->with('error', 'Total menu reservasi harus minimal Rp ' . $formattedMinDp . '.');
         }
 
         $validator = Validator::make($request->all(), [
             'nominal_dp' => [
                 'required',
                 'integer',
-                'min:' . app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'),
+                'min:' . $minDp,
                 'max:' . $totalHargaMenu,
             ],
         ], [
             'nominal_dp.required' => 'Nominal DP wajib diisi.',
             'nominal_dp.integer' => 'Nominal DP harus berupa angka bulat.',
-            'nominal_dp.min' => 'Nominal DP minimal adalah Rp 50.000.',
+            'nominal_dp.min' => 'Nominal DP minimal adalah Rp ' . $formattedMinDp . '.',
             'nominal_dp.max' => 'Nominal DP tidak boleh melebihi total pesanan menu (Rp ' . number_format($totalHargaMenu, 0, ',', '.') . ').',
         ]);
 
@@ -978,7 +972,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         }
 
         $payAmount = (int) $validator->validated()['nominal_dp'];
-        $requiresApproval = (int) ($draft['jml_org'] ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests');
+        $requiresApproval = (int) ($draft['jml_org'] ?? 0) > app(SystemSettings::class)->get('reservation_regular_max_guests');
 
         if ($payAmount > $totalHargaMenu) {
             return redirect()->route('customer.reservasi.payment')
@@ -1068,18 +1062,26 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         // Serialisasi pembuatan reservasi untuk nomor telepon yang sama.
         Customer::whereKey($customerId)->lockForUpdate()->firstOrFail();
 
+        $pendingCutoff = now()->subMinutes($this->reservationPaymentWindowMinutes());
+
         $pendingReservation = Reservasi::query()
             ->where('id_customer', $customerId)
-            ->whereHas('pesanan', function ($query) {
-                $query->where('status', 'Waiting')
-                    ->orWhere(function ($pending) {
-                        $pending->where('status', 'Pending')
-                            ->where('pesanan.created_at', '>=', now()->subMinutes($this->reservationPaymentWindowMinutes()))
-                            ->whereHas('pembayaran', function ($payment) {
-                                $payment->where('jenis', 'DP')
-                                    ->where('status', 'Pending');
-                            });
+            ->where(function ($query) use ($pendingCutoff) {
+                $query->whereHas('pesanan', function ($q) {
+                    $q->where('status', 'Waiting');
+                })->orWhere(function ($pending) use ($pendingCutoff) {
+                    $pending->whereHas('pesanan', function ($q) {
+                        $q->where('status', 'Pending');
+                    })->where(function ($time) use ($pendingCutoff) {
+                        $time->where(function ($approved) use ($pendingCutoff) {
+                            $approved->whereNotNull('approved_at')
+                                ->where('approved_at', '>=', $pendingCutoff);
+                        })->orWhere(function ($regular) use ($pendingCutoff) {
+                            $regular->whereNull('approved_at')
+                                ->where('created_at', '>=', $pendingCutoff);
+                        });
                     });
+                });
             })
             ->lockForUpdate()
             ->first();
@@ -1119,19 +1121,22 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             $verifiedTotal += (int) round((float) $menu->harga) * (int) $qty;
         }
 
-        if ($verifiedTotal < app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') || $verifiedTotal !== $totalHargaMenu) {
+        $minDp = app(SystemSettings::class)->get('reservation_minimum_dp');
+        $formattedMinDp = number_format($minDp, 0, ',', '.');
+
+        if ($verifiedTotal < $minDp || $verifiedTotal !== $totalHargaMenu) {
             throw ValidationException::withMessages([
-                'menu' => 'Total menu berubah atau kurang dari minimum Rp 50.000.',
+                'menu' => 'Total menu berubah atau kurang dari minimum Rp ' . $formattedMinDp . '.',
             ]);
         }
 
-        if ($payAmount < app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') || $payAmount > $verifiedTotal) {
+        if ($payAmount < $minDp || $payAmount > $verifiedTotal) {
             throw ValidationException::withMessages([
-                'nominal_dp' => 'Nominal DP harus minimal Rp 50.000 dan tidak melebihi total menu.',
+                'nominal_dp' => 'Nominal DP harus minimal Rp ' . $formattedMinDp . ' dan tidak melebihi total menu.',
             ]);
         }
 
-        $capacity = (int) $draft['jml_org'] > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') ? ['available' => true] : app(ReservationCapacityService::class)->check(
+        $capacity = (int) $draft['jml_org'] > app(SystemSettings::class)->get('reservation_regular_max_guests') ? ['available' => true] : app(ReservationCapacityService::class)->check(
             $draft['tanggal'],
             $draft['jam_mulai'],
             $draft['jam_selesai'],
@@ -1256,7 +1261,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         $nominalDp = (int) ($pesanan?->pembayaran
             ?->filter(fn ($p) => strtolower(trim((string) $p->jenis)) === 'dp')
             ->sortByDesc('id')
-            ->first()?->nominal ?? app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'));
+            ->first()?->nominal ?? app(SystemSettings::class)->get('reservation_minimum_dp'));
 
         // Hitung DP yang sudah sukses dibayar (jika ada)
         $dpSuccess = (float) ($pesanan?->pembayaran
@@ -1410,7 +1415,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                 $totalHarga += (int) round((float) $menus->get($menuId)->harga) * $qty;
             }
 
-            $minimumTotal = max(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), (int) ($dpPayment?->nominal ?? app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp')));
+            $minimumTotal = max(app(SystemSettings::class)->get('reservation_minimum_dp'), (int) ($dpPayment?->nominal ?? app(SystemSettings::class)->get('reservation_minimum_dp')));
 
             if ($totalHarga < $minimumTotal) {
                 return ['validation_error' => 'Total menu tidak boleh kurang dari DP sebesar Rp '
@@ -1607,6 +1612,18 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
         // Sinkronisasi status pembayaran dengan Midtrans terlebih dahulu
         $this->syncReservationPayment($reservasi);
         $reservasi->refresh()->load('pesanan.pembayaran');
+        $order = $reservasi->pesanan;
+        $refreshedStatus = strtolower(trim((string) ($order?->status ?? '')));
+
+        if ($refreshedStatus === 'reserved') {
+            return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
+                ->with('success', 'Pembayaran DP Anda sudah berhasil dikonfirmasi.');
+        }
+
+        if ($refreshedStatus !== 'pending') {
+            return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order?->kode_pesanan])
+                ->with('error', 'Reservasi tidak lagi menunggu pembayaran.');
+        }
 
         $oldPayment = $order->pembayaran()->where('jenis', 'DP')->latest('id')->first();
         $paymentStatus = strtolower(trim((string) ($oldPayment?->status ?? '')));
@@ -1616,7 +1633,7 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             && !$oldPayment->snap_token;
 
         // Jika pembayaran lama masih pending tetapi memiliki midtrans_order_id (misal expired di Midtrans),
-        // batalkan transaksi lama di Midtrans dan tandai Failed agar baris pembayaran baru (append-only) dapat dibuat
+        // batalkan transaksi lama di Midtrans dan tandai Failed agar baris pembayaran baru (append-only) dapat dibuat    
         if ($oldPayment && $oldPayment->midtrans_order_id && $paymentStatus === 'pending') {
             try {
                 app(MidtransConfigService::class)->configure();
@@ -1667,8 +1684,8 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
                     throw ValidationException::withMessages(['payment' => 'Status pembayaran berubah atau batas waktu telah habis.']);
                 }
 
-                $amount = (int) ($latest?->nominal ?? min(app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp'), (int) $lockedOrder->total_harga));
-                if ($amount < app(\App\Services\SystemSettings::class)->get('reservation_minimum_dp') || $amount > (int) $lockedOrder->total_harga) {
+                $amount = (int) ($latest?->nominal ?? min(app(SystemSettings::class)->get('reservation_minimum_dp'), (int) $lockedOrder->total_harga));
+                if ($amount < app(SystemSettings::class)->get('reservation_minimum_dp') || $amount > (int) $lockedOrder->total_harga) {
                     throw ValidationException::withMessages(['payment' => 'Nominal DP tidak valid. Hubungi admin untuk memperbarui reservasi.']);
                 }
 
@@ -1711,7 +1728,9 @@ $message = "✅ *Reservasi Disetujui!*\n\n"
             $newPayment->forceFill(['snap_token' => $snapToken])->save();
             return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])->with('open_midtrans', true);
         } catch (\Throwable $e) {
-            if ($newPayment) $newPayment->forceFill(['status' => 'Failed', 'snap_token' => null])->save();
+            if ($newPayment) {
+                $newPayment->forceFill(['status' => 'Failed', 'snap_token' => null])->save();
+            }
             Log::error('Gagal membuat pembayaran reservasi.', ['reservasi_id' => $id, 'payment_id' => $newPayment?->id, 'error' => $e->getMessage()]);
             return redirect()->route('customer.reservasi.detail', ['kode_pesanan' => $order->kode_pesanan])
                 ->with('error', 'Pembayaran gagal dibuat. Silakan muat ulang halaman dan coba kembali.');

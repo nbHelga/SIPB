@@ -17,6 +17,7 @@ return new class extends Migration
             $table->time('jam_selesai');
             $table->integer('jml_org');
             $table->text('keterangan')->nullable();
+            $table->timestamp('approved_at')->nullable();
             $table->text('cancellation_reason')->nullable();
             $table->text('rejection_reason')->nullable();
             $table->boolean('dp_forfeited')->default(false);

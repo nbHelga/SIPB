@@ -13,7 +13,6 @@ return new class extends Migration
             $table->string('gambar')->nullable();
             $table->string('nama', 100);
             $table->decimal('harga', 12, 2);
-            // $table->integer('stok')->default(0);
             $table->string('kategori', 50);
             $table->text('deskripsi')->nullable();
             $table->enum('status', ['open', 'close'])->default('close');

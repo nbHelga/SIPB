@@ -16,7 +16,7 @@ Route::prefix('customer')->name('customer.')->group(function () {
     // Self Order
     Route::get('/selforder', [CustomerController::class, 'selfOrder'])->name('selforder');
     Route::get('/menu/{id}/json', [CustomerController::class, 'menuJson'])->name('menu.json');
-    Route::get('/menu/{id}', [CustomerController::class, 'menuDetail'])->name('menu.detail');
+    // Route::get('/menu/{id}', [CustomerController::class, 'menuDetail'])->name('menu.detail');
 
     // Cart 
     Route::get('/cart', [CustomerController::class, 'cart'])->name('cart');
@@ -32,7 +32,7 @@ Route::prefix('customer')->name('customer.')->group(function () {
     // Reservasi
     Route::get('/reservasi', [CustomerController::class, 'reservasiForm'])->name('reservasi.form');
     Route::get('/reservation/menu', [CustomerController::class, 'reservationMenu'])->name('reservation.menu');
-    Route::get('/reservation/menu/{id}', [CustomerController::class, 'reservationMenuDetail'])->name('reservation.menu.detail');
+    // Route::get('/reservation/menu/{id}', [CustomerController::class, 'reservationMenuDetail'])->name('reservation.menu.detail');
     Route::post('/reservasi', [CustomerController::class, 'reservasiStore'])->name('reservasi.store');
     Route::get('/reservasi/payment', [CustomerController::class, 'reservasiPayment'])->name('reservasi.payment');
     Route::post('/reservasi/pay-dp', [CustomerController::class, 'reservasiPayDp'])->name('reservasi.pay-dp');

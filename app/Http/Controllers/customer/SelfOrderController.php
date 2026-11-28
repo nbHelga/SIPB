@@ -659,8 +659,7 @@ class SelfOrderController extends Controller
             ->where('kode_pesanan', $kode_pesanan)
             ->firstOrFail();
 
-        app(MidtransPaymentMethod::class)
-            ->syncSelfOrder($pesanan);
+        app(MidtransPaymentMethod::class)->syncSelfOrder($pesanan);
         $expiryService->expireIfDue($pesanan);
 
         $pesanan->refresh()->load([
@@ -674,30 +673,37 @@ class SelfOrderController extends Controller
             ->latest('id')
             ->first();
 
-        $latestPayment = $pesanan->pembayaran()
-            ->where('jenis', 'Full')
-            ->whereNotNull('midtrans_order_id')
-            ->latest('id')
-            ->first();
+        // $latestPayment = $pesanan->pembayaran()
+        //     ->where('jenis', 'Full')
+        //     ->whereNotNull('midtrans_order_id')
+        //     ->latest('id')
+        //     ->first();
 
         $st = strtolower(trim((string) $pesanan->status));
         $statusPembayaran = strtolower(trim((string) ($fullPayment?->status ?? '')));
         $metodePembayaran = strtolower(trim((string) ($fullPayment?->metode ?? '')));
         $isCashPayment = $metodePembayaran === 'tunai';
+
         $initialPaymentMethod = strtolower(trim((string) $pesanan->pembayaran()
-            ->where('jenis', 'Full')->oldest('id')->value('metode')));
-        $windowMinutes = app(\App\Services\SystemSettings::class)->get($initialPaymentMethod === 'tunai' ? 'selforder_cash_minutes' : 'selforder_qris_minutes');
+            ->where('jenis', 'Full')
+            ->oldest('id')
+            ->value('metode')));
+        $windowMinutes = app(\App\Services\SystemSettings::class)->get(
+            $initialPaymentMethod === 'tunai' ? 'selforder_cash_minutes' : 'selforder_qris_minutes'
+        );
         $orderExpiresAt = $pesanan->created_at
             ? $pesanan->created_at->copy()->addMinutes($windowMinutes)->timestamp * 1000
             : null;
+        $withinWindow = $orderExpiresAt && (now()->timestamp * 1000 < $orderExpiresAt);
 
-        $snapToken = strtolower(trim((string) ($latestPayment?->status ?? ''))) === 'pending'
-            ? $latestPayment?->snap_token
+        $snapToken = (!$isCashPayment && $statusPembayaran === 'pending')
+            ? $fullPayment?->snap_token
             : null;
 
         $canRetryPayment = $st === 'pending'
             && !$isCashPayment
-            && strtolower(trim((string) ($latestPayment?->status ?? ''))) === 'failed';
+            && $statusPembayaran === 'failed'
+            && $withinWindow;
 
         $midtransProduction = filter_var(
             config('services.midtrans.is_production', env('MIDTRANS_IS_PRODUCTION', false)),

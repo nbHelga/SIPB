@@ -99,15 +99,19 @@
 
                     <!-- Jumlah Orang -->
                     <div>
+                        @php
+                            $regularMaxGuests = app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests');
+                            $maxGuestsLimit = $maxGuests ?? app(\App\Services\SystemSettings::class)->get('reservation_max_guests');
+                        @endphp
                         <label class="block font-bold mb-1">Jumlah Orang <span class="text-red-500">*</span></label>
-                        <input type="number" name="jml_org" required min="1" max="{{ $maxGuests ?? 100 }}"
+                        <input type="number" name="jml_org" required min="1" max="{{ $maxGuestsLimit }}"
                                value="{{ old('jml_org', $prefill['jml_org'] ?? '') }}"
                                class="w-full border-2 @error('jml_org') border-red-500 bg-red-50 @else border-stone-300 @enderror rounded-lg px-4 py-3 focus:border-[#4A2311] focus:outline-none">
-                        <p class="mt-1 text-xs text-stone-500">Minimal 1 orang, maksimal {{ $maxGuests ?? 100 }} orang per reservasi.</p>
+                        <p class="mt-1 text-xs text-stone-500">Minimal 1 orang, maksimal {{ $maxGuestsLimit }} orang per reservasi.</p>
                         @error('jml_org')
                             <p class="text-red-500 text-xs mt-1 font-bold">⚠️ {{ $message }}</p>
                         @enderror
-                        <p id="largeReservationFormNotice" class="{{ $requiresApproval ? '' : 'hidden' }} mt-2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs font-bold text-amber-900">Reservasi lebih dari 10 orang akan ditinjau admin. DP baru dapat dibayar setelah reservasi disetujui.</p>
+                        <p id="largeReservationFormNotice" class="{{ $requiresApproval ? '' : 'hidden' }} mt-2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs font-bold text-amber-900">Reservasi lebih dari {{ $regularMaxGuests }} orang akan ditinjau admin. DP baru dapat dibayar setelah reservasi disetujui.</p>
                     </div>
                 </div>
 
@@ -234,14 +238,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitBtn = document.getElementById('reservasiSubmitBtn');
     const guestInput = form?.querySelector('[name="jml_org"]');
     const approvalNotice = document.getElementById('largeReservationFormNotice');
+    const regularMaxGuests = {{ app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') }};
 
     if (!form) return;
 
     if (guestInput && approvalNotice) {
-        approvalNotice.classList.toggle('hidden', Number(guestInput.value) <= 10);
+        approvalNotice.classList.toggle('hidden', Number(guestInput.value) <= regularMaxGuests);
     }
     guestInput?.addEventListener('input', function () {
-        approvalNotice?.classList.toggle('hidden', Number(this.value) <= 10);
+        approvalNotice?.classList.toggle('hidden', Number(this.value) <= regularMaxGuests);
     });
 
     form.addEventListener('submit', function (e) {

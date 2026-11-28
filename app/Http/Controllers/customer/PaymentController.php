@@ -24,72 +24,198 @@ class PaymentController extends Controller
     public function changeMethod(Request $request, string $kode_pesanan)
     {
         $data = $request->validate(['metode_pembayaran' => ['required', 'in:Tunai,Midtrans']]);
-        $order = Pesanan::with(['detailPesanan.menu', 'meja', 'pembayaran', 'reservasi'])->where('kode_pesanan', $kode_pesanan)->firstOrFail();
-        if (strtolower((string) $order->status) !== 'pending') return back()->with('error', 'Metode pembayaran hanya dapat diubah saat pesanan menunggu pembayaran.');
+        $order = Pesanan::with(['detailPesanan.menu', 'meja', 'pembayaran', 'reservasi.customer'])
+            ->where('kode_pesanan', $kode_pesanan)
+            ->firstOrFail();
+
+        if (strtolower(trim((string) $order->status)) !== 'pending') {
+            return back()->with('error', 'Metode pembayaran hanya dapat diubah saat pesanan menunggu pembayaran.');
+        }
+
         $isReservation = (bool) $order->reservasi;
-        $deadline = $isReservation ? $order->reservasi->paymentDeadline() : $order->created_at->copy()->addMinutes(app(\App\Services\SystemSettings::class)->get(
-            strtolower((string) $order->pembayaran()->where('jenis', 'Full')->oldest('id')->value('metode')) === 'tunai' ? 'selforder_cash_minutes' : 'selforder_qris_minutes'
-        ));
-        if (now()->gte($deadline)) return back()->with('error', 'Batas waktu pembayaran telah habis.');
+        $detailRoute = $isReservation ? 'customer.reservasi.detail' : 'customer.order.detail';
+
+        $deadline = $isReservation
+            ? $order->reservasi->paymentDeadline()
+            : $order->created_at->copy()->addMinutes(
+                app(\App\Services\SystemSettings::class)->get(
+                    strtolower(trim((string) $order->pembayaran()->where('jenis', 'Full')->oldest('id')->value('metode'))) === 'tunai'
+                        ? 'selforder_cash_minutes'
+                        : 'selforder_qris_minutes'
+                )
+            );
+
+        if (now()->gte($deadline)) {
+            return back()->with('error', 'Batas waktu pembayaran telah habis.');
+        }
+
         $kind = $isReservation ? 'DP' : 'Full';
         $current = $order->pembayaran()->where('jenis', $kind)->latest('id')->first();
         $targetMethod = $isReservation ? 'midtrans' : ($data['metode_pembayaran'] === 'Tunai' ? 'tunai' : 'other_qris');
-        if ($isReservation && $targetMethod === 'tunai') {
+
+        if ($isReservation && $data['metode_pembayaran'] === 'Tunai') {
             return back()->with('error', 'Pembayaran reservasi hanya dapat dilakukan secara digital/online.');
         }
-        if ($isReservation && in_array(strtolower((string) $current?->metode), ['', 'midtrans'], true)) {
+        if ($isReservation && in_array(strtolower(trim((string) $current?->metode)), ['', 'midtrans'], true)) {
             return back()->with('error', 'Anda belum memilih metode pembayaran. Silakan pilih metode pembayaran terlebih dahulu melalui tombol Lanjutkan Pembayaran.');
         }
-        if (!$isReservation && strtolower((string) $current?->metode) === $targetMethod) {
+        if (!$isReservation && strtolower(trim((string) $current?->metode)) === $targetMethod) {
             return back()->with('error', 'Metode tersebut sudah digunakan.');
         }
-        if ($current?->status === 'Success') return back()->with('error', 'Pembayaran sudah berhasil.');
+        if (strtolower(trim((string) $current?->status)) === 'success') {
+            return back()->with('error', 'Pembayaran sudah berhasil.');
+        }
 
-        // 1. Jika beralih dari Midtrans ke metode lain, batalkan transaksi aktif di Midtrans terlebih dahulu.
-        foreach ($order->pembayaran()->where('jenis', $kind)->where('status', 'Pending')->whereNotNull('midtrans_order_id')->get() as $old) {
+        // 1. Cek status dan batalkan transaksi aktif di Midtrans terlebih dahulu (aman terhadap 404/412).
+        $pendingMidtransPayments = $order->pembayaran()
+            ->where('jenis', $kind)
+            ->where('status', 'Pending')
+            ->whereNotNull('midtrans_order_id')
+            ->get();
+
+        if ($pendingMidtransPayments->isNotEmpty()) {
+            app(MidtransConfigService::class)->configure();
+        }
+
+        foreach ($pendingMidtransPayments as $old) {
             try {
-                app(MidtransConfigService::class)->configure();
-                Transaction::cancel($old->midtrans_order_id);
                 $remote = Transaction::status($old->midtrans_order_id);
-                if (in_array(strtolower((string) data_get($remote, 'transaction_status')), ['settlement', 'capture'], true)) {
-                    return back()->with('error', 'Pembayaran lama sudah diproses. Muat ulang halaman untuk melihat statusnya.');
+                $remoteStatus = strtolower((string) data_get($remote, 'transaction_status', ''));
+                $remoteFraud = strtolower((string) data_get($remote, 'fraud_status', ''));
+
+                if ($remoteStatus === 'settlement' || ($remoteStatus === 'capture' && $remoteFraud === 'accept')) {
+                    $old->update([
+                        'status' => 'Success',
+                        'metode' => MidtransPaymentMethod::from($remote) ?? $old->metode,
+                    ]);
+                    $order->update(['status' => $isReservation ? 'Reserved' : 'Paid']);
+
+                    return redirect()->route($detailRoute, ['kode_pesanan' => $kode_pesanan])
+                        ->with('success', 'Pembayaran sebelumnya sudah berhasil dikonfirmasi.');
                 }
-                $old->update(['status' => 'Failed', 'snap_token' => null]);
+
+                if (in_array($remoteStatus, ['expire', 'cancel', 'deny', 'failure'], true)) {
+                    $old->update([
+                        'status' => 'Failed',
+                        'snap_token' => null,
+                        'metode' => MidtransPaymentMethod::from($remote) ?? $old->metode,
+                    ]);
+                    continue;
+                }
+
+                Transaction::cancel($old->midtrans_order_id);
+                $verified = Transaction::status($old->midtrans_order_id);
+                $verifiedStatus = strtolower((string) data_get($verified, 'transaction_status', ''));
+                $verifiedFraud = strtolower((string) data_get($verified, 'fraud_status', ''));
+
+                if ($verifiedStatus === 'settlement' || ($verifiedStatus === 'capture' && $verifiedFraud === 'accept')) {
+                    $old->update([
+                        'status' => 'Success',
+                        'metode' => MidtransPaymentMethod::from($verified) ?? $old->metode,
+                    ]);
+                    $order->update(['status' => $isReservation ? 'Reserved' : 'Paid']);
+
+                    return redirect()->route($detailRoute, ['kode_pesanan' => $kode_pesanan])
+                        ->with('success', 'Pembayaran sebelumnya sudah berhasil dikonfirmasi.');
+                }
+
+                if (!in_array($verifiedStatus, ['expire', 'cancel', 'deny', 'failure'], true)) {
+                    return back()->with('error', 'Pembayaran lama belum dapat ditutup di Midtrans. Coba kembali beberapa saat lagi.');
+                }
+
+                $old->update([
+                    'status' => 'Failed',
+                    'snap_token' => null,
+                    'metode' => MidtransPaymentMethod::from($verified) ?? $old->metode,
+                ]);
             } catch (\Throwable $e) {
-                Log::warning('Tidak dapat menutup pembayaran lama saat ganti metode.', ['payment_id' => $old->id, 'error' => $e->getMessage()]);
+                $notFound = (int) $e->getCode() === 404
+                    || str_contains(strtolower($e->getMessage()), "transaction doesn't exist")
+                    || str_contains(strtolower($e->getMessage()), 'transaction not found');
+
+                if ($notFound) {
+                    // Pelanggan belum memunculkan/memilih kanal di Snap: aman ditandai Failed secara lokal.
+                    $old->update(['status' => 'Failed', 'snap_token' => null]);
+                    continue;
+                }
+
+                Log::warning('Tidak dapat menutup pembayaran lama saat ganti metode.', [
+                    'payment_id' => $old->id,
+                    'error' => $e->getMessage(),
+                ]);
+
                 return back()->with('error', 'Pembayaran lama belum dapat ditutup. Coba kembali beberapa saat lagi.');
             }
         }
 
-        // 2. Tandai semua tagihan pending sebelumnya (termasuk tagihan Tunai) menjadi 'Failed' agar tidak menggantung ganda
-        $order->pembayaran()
-            ->where('jenis', $kind)
-            ->where('status', 'Pending')
-            ->update(['status' => 'Failed', 'snap_token' => null]);
+        // 2. Buat baris pembayaran baru secara atomik (lindungi dari double-click).
+        try {
+            $payment = DB::transaction(function () use ($order, $kind, $targetMethod, $deadline) {
+                $lockedOrder = Pesanan::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
-        $amount = (int) ($current?->nominal ?? $order->total_harga);
-        $payment = Pembayaran::create(['id_pesanan' => $order->id, 'jenis' => $kind, 'metode' => $targetMethod, 'nominal' => $amount, 'status' => 'Pending']);
+                if (strtolower(trim((string) $lockedOrder->status)) !== 'pending' || now()->gte($deadline)) {
+                    throw new \RuntimeException('Status pesanan berubah atau batas waktu pembayaran telah habis.');
+                }
+
+                $hasSuccess = $lockedOrder->pembayaran()
+                    ->where('jenis', $kind)
+                    ->where('status', 'Success')
+                    ->exists();
+
+                if ($hasSuccess) {
+                    throw new \RuntimeException('Pembayaran sudah berhasil.');
+                }
+
+                $latestBefore = $lockedOrder->pembayaran()->where('jenis', $kind)->latest('id')->lockForUpdate()->first();
+                $amount = (int) ($latestBefore?->nominal ?? $lockedOrder->total_harga);
+
+                $lockedOrder->pembayaran()
+                    ->where('jenis', $kind)
+                    ->where('status', 'Pending')
+                    ->update(['status' => 'Failed', 'snap_token' => null]);
+
+                return Pembayaran::create([
+                    'id_pesanan' => $lockedOrder->id,
+                    'jenis' => $kind,
+                    'metode' => $targetMethod,
+                    'nominal' => $amount,
+                    'status' => 'Pending',
+                ]);
+            }, 3);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        // 3. Jika beralih ke Midtrans/QRIS, buat Snap token baru dengan sisa waktu menuju deadline.
         if ($targetMethod !== 'tunai') {
             try {
                 app(MidtransConfigService::class)->configure();
                 $remainingMinutes = max(1, (int) ceil(now()->diffInSeconds($deadline) / 60));
                 $midtransId = ($isReservation ? 'RESERV-' . $order->reservasi->id : 'ORDER-' . $order->id) . '-' . Str::random(8);
-                $items = $isReservation ? [['id' => 'DP', 'price' => $amount, 'quantity' => 1, 'name' => 'DP Reservasi']] : $order->detailPesanan->map(fn ($d) => ['id' => (string) $d->id_menu, 'price' => (int) round($d->subtotal / max(1, $d->jumlah)), 'quantity' => $d->jumlah, 'name' => substr($d->menu?->nama ?? 'Menu', 0, 50)])->values()->all();
-                
+                $amount = (int) $payment->nominal;
+                $items = $isReservation
+                    ? [['id' => 'DP', 'price' => $amount, 'quantity' => 1, 'name' => 'DP Reservasi']]
+                    : $order->detailPesanan->map(fn ($d) => [
+                        'id' => (string) $d->id_menu,
+                        'price' => (int) round($d->subtotal / max(1, $d->jumlah)),
+                        'quantity' => $d->jumlah,
+                        'name' => substr($d->menu?->nama ?? 'Menu', 0, 50),
+                    ])->values()->all();
+
                 $enabledPayments = $isReservation
                     ? ['other_qris', 'gopay', 'shopeepay', 'bca_va']
                     : ['other_qris'];
 
-                $customerDetails = $isReservation ? [
-                    'first_name' => $order->reservasi->customer->nama,
-                    'phone' => $order->reservasi->customer->nomor_telp,
-                ] : [
-                    'first_name' => 'Meja ' . ($order->meja->nomor_meja ?? 'Tamu'),
-                ];
+                $customerDetails = $isReservation
+                    ? [
+                        'first_name' => $order->reservasi->customer->nama,
+                        'phone' => $order->reservasi->customer->nomor_telp,
+                    ]
+                    : [
+                        'first_name' => 'Meja ' . ($order->meja->nomor_meja ?? 'Tamu'),
+                    ];
 
-                $returnUrl = $isReservation
-                    ? route('customer.reservasi.detail', ['kode_pesanan' => $kode_pesanan])
-                    : route('customer.order.detail', ['kode_pesanan' => $kode_pesanan]);
+                $returnUrl = route($detailRoute, ['kode_pesanan' => $kode_pesanan]);
 
                 $token = Snap::getSnapToken([
                     'transaction_details' => ['order_id' => $midtransId, 'gross_amount' => $amount],
@@ -107,14 +233,24 @@ class PaymentController extends Controller
                         'error' => $returnUrl,
                     ],
                 ]);
-                $payment->update(['midtrans_order_id' => $midtransId, 'snap_token' => $token]);
+
+                $payment->update([
+                    'midtrans_order_id' => $midtransId,
+                    'snap_token' => $token,
+                ]);
             } catch (\Throwable $e) {
                 $payment->update(['status' => 'Failed', 'snap_token' => null]);
-                Log::error('Gagal menyiapkan token saat ganti metode pembayaran.', ['payment_id' => $payment->id, 'error' => $e->getMessage()]);
+                Log::error('Gagal menyiapkan token saat ganti metode pembayaran.', [
+                    'payment_id' => $payment->id,
+                    'error' => $e->getMessage(),
+                ]);
+
                 return back()->with('error', 'Pembayaran digital gagal disiapkan. Coba kembali.');
             }
         }
-        return redirect()->route($isReservation ? 'customer.reservasi.detail' : 'customer.order.detail', ['kode_pesanan' => $kode_pesanan])->with('open_midtrans', $targetMethod !== 'tunai');
+
+        return redirect()->route($detailRoute, ['kode_pesanan' => $kode_pesanan])
+            ->with('open_midtrans', $targetMethod !== 'tunai');
     }
 
     public function midtransNotification(Request $request)
@@ -434,6 +570,10 @@ class PaymentController extends Controller
             ->where('kode_pesanan', $kode_pesanan)
             ->firstOrFail();
 
+        if (Reservasi::where('id_pesanan', $pesanan->id)->exists()) {
+            return back()->with('error', 'Pembatalan reservasi tidak dapat dilakukan melalui halaman ini.');
+        }
+
         if (strtolower(trim((string) $pesanan->status)) !== 'pending') {
             return back()->with('error', 'Pesanan tidak lagi menunggu pembayaran.');
         }
@@ -448,11 +588,7 @@ class PaymentController extends Controller
         ) {
             try {
                 $remote = Transaction::status($payment->midtrans_order_id);
-                $remoteStatus = strtolower((string) data_get(
-                    $remote,
-                    'transaction_status',
-                    ''
-                ));
+                $remoteStatus = strtolower((string) data_get($remote, 'transaction_status', ''));
 
                 if (
                     $remoteStatus === 'settlement'
@@ -463,24 +599,20 @@ class PaymentController extends Controller
                 ) {
                     $payment->update([
                         'status' => 'Success',
-                        'metode' => MidtransPaymentMethod::from($remote)
-                            ?? $payment->metode,
+                        'metode' => MidtransPaymentMethod::from($remote) ?? $payment->metode,
                     ]);
 
                     $pesanan->update(['status' => 'Paid']);
 
                     return redirect()
-                        ->route('customer.order.detail', [
-                            'kode_pesanan' => $pesanan->kode_pesanan,
-                        ])
+                        ->route('customer.order.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
                         ->with('error', 'Pembayaran sudah berhasil; pesanan tidak dapat dibatalkan.');
                 }
 
                 if (in_array($remoteStatus, ['expire', 'cancel', 'deny', 'failure'], true)) {
                     $payment->update([
                         'status' => 'Failed',
-                        'metode' => MidtransPaymentMethod::from($remote)
-                            ?? $payment->metode,
+                        'metode' => MidtransPaymentMethod::from($remote) ?? $payment->metode,
                     ]);
 
                     continue;
@@ -489,11 +621,7 @@ class PaymentController extends Controller
                 Transaction::cancel($payment->midtrans_order_id);
 
                 $verified = Transaction::status($payment->midtrans_order_id);
-                $verifiedStatus = strtolower((string) data_get(
-                    $verified,
-                    'transaction_status',
-                    ''
-                ));
+                $verifiedStatus = strtolower((string) data_get($verified, 'transaction_status', ''));
 
                 if (
                     $verifiedStatus === 'settlement'
@@ -504,36 +632,29 @@ class PaymentController extends Controller
                 ) {
                     $payment->update([
                         'status' => 'Success',
-                        'metode' => MidtransPaymentMethod::from($verified)
-                            ?? $payment->metode,
+                        'metode' => MidtransPaymentMethod::from($verified) ?? $payment->metode,
                     ]);
 
                     $pesanan->update(['status' => 'Paid']);
 
                     return redirect()
-                        ->route('customer.order.detail', [
-                            'kode_pesanan' => $pesanan->kode_pesanan,
-                        ])
+                        ->route('customer.order.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
                         ->with('error', 'Pembayaran sudah berhasil; pesanan tidak dapat dibatalkan.');
                 }
 
                 if (in_array($verifiedStatus, ['expire', 'cancel', 'deny', 'failure'], true)) {
                     $payment->update([
                         'status' => 'Failed',
-                        'metode' => MidtransPaymentMethod::from($verified)
-                            ?? $payment->metode,
+                        'metode' => MidtransPaymentMethod::from($verified) ?? $payment->metode,
                     ]);
 
                     continue;
                 }
 
-                return back()->with(
-                    'error',
-                    'Midtrans belum mengonfirmasi pembatalan pembayaran. Coba kembali.'
-                );
+                return back()->with('error', 'Midtrans belum mengonfirmasi pembatalan pembayaran. Coba kembali.');
             } catch (\Throwable $e) {
                 $notFound = (int) $e->getCode() === 404
-                    || str_contains(strtolower($e->getMessage()), 'transaction doesn\'t exist')
+                    || str_contains(strtolower($e->getMessage()), "transaction doesn't exist")
                     || str_contains(strtolower($e->getMessage()), 'transaction not found');
 
                 if ($notFound) {
@@ -546,10 +667,7 @@ class PaymentController extends Controller
                     'error' => $e->getMessage(),
                 ]);
 
-                return back()->with(
-                    'error',
-                    'Pembayaran belum dapat dibatalkan di Midtrans. Coba kembali.'
-                );
+                return back()->with('error', 'Pembayaran belum dapat dibatalkan di Midtrans. Coba kembali.');
             }
         }
 
@@ -577,13 +695,6 @@ class PaymentController extends Controller
                 ->update(['status' => 'Failed']);
         }, 3);
 
-        if (Reservasi::where('id_pesanan', $pesanan->id)->exists()) {
-            return redirect()->route('home')
-                ->with('success', 'Reservasi berhasil dibatalkan.');
-        }
-
-        // FIX UX-03: redirect ke selforder tanpa 'kode' — kode_pesanan format SOD-... tidak valid
-        // untuk parameter 'kode' di selfOrder(). Biarkan sesi bersih dan kode baru digenerate.
         return redirect()->route('customer.selforder', [
             'tableNumber' => $pesanan->meja->nomor_meja ?? '',
         ])->with('success', 'Pesanan berhasil dibatalkan.');
@@ -595,12 +706,31 @@ class PaymentController extends Controller
             ->where('kode_pesanan', $kode_pesanan)
             ->firstOrFail();
 
-        if (strtolower(trim((string) $pesanan->status)) !== 'pending') {
-            return back()->with('error', 'Pesanan tidak lagi menunggu pembayaran.');
-        }
-
         if (Reservasi::where('id_pesanan', $pesanan->id)->exists()) {
             return back()->with('error', 'Gunakan tombol pembayaran pada detail reservasi.');
+        }
+
+        app(\App\Services\PendingSelfOrderExpiryService::class)->expireIfDue($pesanan);
+        $pesanan->refresh();
+
+        if (strtolower(trim((string) $pesanan->status)) !== 'pending') {
+            return redirect()->route('customer.order.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
+                ->with('error', 'Pesanan tidak lagi menunggu pembayaran.');
+        }
+
+        $initialMethod = strtolower(trim((string) $pesanan->pembayaran()
+            ->where('jenis', 'Full')
+            ->oldest('id')
+            ->value('metode')));
+        $windowMinutes = app(\App\Services\SystemSettings::class)->get(
+            $initialMethod === 'tunai' ? 'selforder_cash_minutes' : 'selforder_qris_minutes'
+        );
+        $deadline = $pesanan->created_at->copy()->addMinutes($windowMinutes);
+
+        if (now()->gte($deadline)) {
+            app(\App\Services\PendingSelfOrderExpiryService::class)->expireIfDue($pesanan);
+            return redirect()->route('customer.order.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
+                ->with('error', 'Batas waktu pembayaran pesanan telah habis.');
         }
 
         foreach ($pesanan->detailPesanan as $detail) {
@@ -615,24 +745,33 @@ class PaymentController extends Controller
 
         app(MidtransPaymentMethod::class)->syncSelfOrder($pesanan);
         $pesanan->refresh();
+        $refreshedStatus = strtolower(trim((string) $pesanan->status));
+
+        if ($refreshedStatus === 'paid') {
+            return redirect()->route('customer.order.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
+                ->with('success', 'Pembayaran Anda sudah berhasil dikonfirmasi.');
+        }
+
+        if ($refreshedStatus !== 'pending') {
+            return redirect()->route('customer.order.detail', ['kode_pesanan' => $pesanan->kode_pesanan])
+                ->with('error', 'Pesanan tidak lagi menunggu pembayaran.');
+        }
 
         $latest = $pesanan->pembayaran()
             ->where('jenis', 'Full')
-            ->whereNotNull('midtrans_order_id')
             ->latest('id')
             ->first();
 
-        // Jika pembayaran lama masih pending tetapi customer menekan ulangi pembayaran (misal expired di Midtrans),
-        // batalkan transaksi lama di Midtrans dan tandai Failed agar Snap token baru dapat digenerate
         if ($latest && strtolower(trim((string) $latest->status)) === 'pending') {
-            try {
-                app(MidtransConfigService::class)->configure();
-                Transaction::cancel($latest->midtrans_order_id);
-            } catch (\Throwable $e) {
-                // Abaikan jika sudah cancel/expire di Midtrans
+            if ($latest->midtrans_order_id) {
+                try {
+                    app(MidtransConfigService::class)->configure();
+                    Transaction::cancel($latest->midtrans_order_id);
+                } catch (\Throwable $e) {
+                    // Abaikan jika sudah cancel/expire/404 di Midtrans
+                }
             }
             $latest->update(['status' => 'Failed', 'snap_token' => null]);
-            $latest = null;
         }
 
         $nominal = (int) ($latest?->nominal ?? $pesanan->total_harga);
@@ -651,28 +790,21 @@ class PaymentController extends Controller
         $midtransOrderId = 'ORDER-' . $pesanan->id . '-' . Str::random(8);
 
         try {
-            $newPayment = DB::transaction(function () use (
-                $pesanan,
-                $nominal,
-                $midtransOrderId
-            ) {
+            $newPayment = DB::transaction(function () use ($pesanan, $nominal, $midtransOrderId, $deadline) {
                 $lockedOrder = Pesanan::whereKey($pesanan->id)
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                if (strtolower(trim((string) $lockedOrder->status)) !== 'pending') {
-                    throw new \RuntimeException('Status pesanan sudah berubah.');
+                if (strtolower(trim((string) $lockedOrder->status)) !== 'pending' || now()->gte($deadline)) {
+                    throw new \RuntimeException('Status pesanan sudah berubah atau waktu habis.');
                 }
 
                 $latestPayment = $lockedOrder->pembayaran()
                     ->where('jenis', 'Full')
-                    // ->whereRaw("LOWER(TRIM(metode)) = 'midtrans'")
-                    ->whereNotNull('midtrans_order_id')
                     ->latest('id')
                     ->lockForUpdate()
                     ->first();
 
-                // Lindungi dari double-click/concurrent request.
                 if ($latestPayment && strtolower(trim((string) $latestPayment->status)) === 'pending') {
                     throw new \RuntimeException('Masih ada pembayaran aktif.');
                 }
@@ -689,9 +821,8 @@ class PaymentController extends Controller
 
             app(MidtransConfigService::class)->configure();
 
-            $returnUrl = route('customer.order.detail', [
-                'kode_pesanan' => $pesanan->kode_pesanan,
-            ]);
+            $returnUrl = route('customer.order.detail', ['kode_pesanan' => $pesanan->kode_pesanan]);
+            $remainingMinutes = max(1, (int) ceil(now()->diffInSeconds($deadline) / 60));
 
             $snapToken = Snap::getSnapToken([
                 'transaction_details' => [
@@ -706,7 +837,7 @@ class PaymentController extends Controller
                 'custom_expiry' => [
                     'start_time' => now()->format('Y-m-d H:i:s O'),
                     'unit' => 'minute',
-                    'duration' => app(\App\Services\SystemSettings::class)->get('selforder_qris_minutes'),
+                    'duration' => $remainingMinutes,
                 ],
                 'callbacks' => [
                     'finish' => $returnUrl,

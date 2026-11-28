@@ -151,7 +151,7 @@ class PendingSelfOrderExpiryService
 
     private function cutoff(int $expiryMinutes)
     {
-        return now('UTC')->subMinutes($expiryMinutes);
+        return now()->subMinutes($expiryMinutes);
     }
 
     private function configureMidtrans(): void

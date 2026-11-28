@@ -36,14 +36,18 @@ class DetailPesanan extends Model
     }
     
     // Boot method untuk auto-calculate subtotal sebelum save
+    //berfungsi melindungi data transaksi lama agar tidak berubah jika suatu saat ada pembaruan pada baris tersebut.
     protected static function boot()
     {
         parent::boot();
         
         static::saving(function ($model) {
-            if ($model->menu) {
+            if ($model->subtotal === null && $model->menu) {
                 $model->subtotal = $model->jumlah * $model->menu->harga;
             }
+            // if ($model->menu) {
+            //     $model->subtotal = $model->jumlah * $model->menu->harga;
+            // }
         });
     }
 }

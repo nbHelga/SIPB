@@ -120,7 +120,7 @@
 
                 @if((int) ($draftObj->jml_org ?? 0) > app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests'))
                     <div class="rounded-lg border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-950">
-                        Reservasi lebih dari 10 orang perlu persetujuan admin. Masukkan nominal DP di bawah; pembayaran baru dimulai setelah reservasi disetujui.
+                        Reservasi lebih dari {{ app(\App\Services\SystemSettings::class)->get('reservation_regular_max_guests') }} orang perlu persetujuan admin. Masukkan nominal DP di bawah; pembayaran baru dimulai setelah reservasi disetujui.
                     </div>
                 @endif
 

@@ -70,55 +70,7 @@ class AdminController extends Controller
                 $percentage[$key] = $selected > 0 ? 100 : 0;
             }
         }
-
-        // // 2. DATA GRAFIK PENJUALAN (7 Hari Terakhir)
-        // $salesChart = ['labels' => [], 'data' => []];
-        // for ($i = 6; $i >= 0; $i--) {
-        //     $d = Carbon::today()->subDays($i);
-        //     $salesChart['labels'][] = $d->format('d M');
-            
-        //     $revSelfOrder = Pesanan::whereNull('id_reservasi')->whereDate('created_at', $d)->whereNotIn('status', ['Pending', 'Cancelled'])->sum('total_harga');
-        //     $revReservasi = Pesanan::whereHas('reservasi', function ($q) use ($d) {
-        //         $q->whereDate('tanggal', $d);
-        //     })->where('status', 'Completed')->sum('total_harga');
-            
-        //     $salesChart['data'][] = $revSelfOrder + $revReservasi;
-        // }
-
-        // // 3. GRAFIK METODE PEMBAYARAN (Hari Filter)
-        // $paymentMethods = DB::table('pesanan')
-        //     ->select('metode_pembayaran', DB::raw('SUM(total_harga) as total'))
-        //     ->whereDate('created_at', $targetDate)
-        //     ->whereNotIn('status', ['Pending', 'Cancelled'])
-        //     ->whereNull('id_reservasi')
-        //     ->groupBy('metode_pembayaran')
-        //     ->pluck('total', 'metode_pembayaran')->toArray();
-
-        // // Gabungkan dengan pelunasan reservasi
-        // $pelunasanRes = Pesanan::whereHas('reservasi', function ($q) use ($targetDate) {
-        //     $q->whereDate('tanggal', $targetDate);
-        // })->where('status', 'Completed')->get();
-
-        // foreach ($pelunasanRes as $pr) {
-        //     $dp = (float) $pr->reservasi->dp_bayar;
-        //     $sisa = (float) $pr->total_harga - $dp;
-            
-        //     $paymentMethods['Midtrans DP'] = ($paymentMethods['Midtrans DP'] ?? 0) + $dp;
-        //     $method = $pr->metode_pelunasan ?? 'Lainnya';
-        //     $paymentMethods[$method] = ($paymentMethods[$method] ?? 0) + $sisa;
-        // }
-
-        // // 4. GRAFIK PENJUALAN PER KATEGORI (Hari Filter)
-        // $categorySales = DB::table('detail_pesanan')
-        //     ->join('pesanan', 'detail_pesanan.id_pesanan', '=', 'pesanan.id')
-        //     ->join('menu', 'detail_pesanan.id_menu', '=', 'menu.id')
-        //     ->whereDate('pesanan.created_at', $targetDate) // Simplifikasi tanggal pesanan
-        //     ->whereNotIn('pesanan.status', ['Pending', 'Cancelled'])
-        //     ->select('menu.kategori', DB::raw('SUM(detail_pesanan.subtotal) as total'))
-        //     ->groupBy('menu.kategori')
-        //     ->pluck('total', 'menu.kategori')->toArray();
-
-        // Admin trend charts cover this month; cashier dashboard stays focused on its four metrics.
+        
         $startOfMonth = Carbon::now()->startOfMonth();
 
         // 1. Tren Pendapatan Harian (Cash vs Non-Cash)
@@ -129,26 +81,9 @@ class AdminController extends Controller
             ->where('completed_at', '>=', Carbon::now()->startOfMonth())
             ->get();
 
-        // $dailyRevenue = $completedThisMonth->groupBy(
-        //     fn ($pesanan) => Carbon::parse($pesanan->completed_at)->toDateString()
-        // );
-
         // Ganti revenueTrend:
         $revenueTrend = collect();
 
-        // for ($date = Carbon::now()->startOfMonth(); $date->lte(Carbon::today()); $date->addDay()) {
-        //     $payments = Pembayaran::where('status', 'Success')
-        //         ->whereHas('pesanan', function ($q) use ($date) {
-        //             $q->whereRaw('LOWER(status) = ?', ['completed'])
-        //                 ->whereDate('completed_at', $date->toDateString());
-        //         })->get();
-
-        //     $revenueTrend->push((object) [
-        //         'date' => $date->toDateString(),
-        //         'cash' => $payments->filter(fn ($p) => strtolower($p->metode) === 'tunai')->sum('nominal'),
-        //         'non_cash' => $payments->filter(fn ($p) => strtolower($p->metode) !== 'tunai')->sum('nominal'),
-        //     ]);
-        // }
         $paymentsData = Pembayaran::select(
                 DB::raw('DATE(pembayaran.updated_at) as date'),
                 DB::raw("SUM(CASE WHEN LOWER(TRIM(metode)) = 'tunai' THEN nominal ELSE 0 END) as cash"),
@@ -364,121 +299,4 @@ class AdminController extends Controller
         ]);
     }
 
-    public function dailyReport(Request $request)
-    {
-        $filters = $request->validate([
-            'tanggal' => ['nullable', 'date_format:Y-m-d'],
-            'search' => ['nullable', 'string', 'max:100'],
-        ]);
-        $tanggal = $filters['tanggal'] ?? today()->toDateString();
-        $search = trim((string) ($filters['search'] ?? ''));
-
-        $summary = DB::table('detail_pesanan as dp')
-            ->join('pesanan as p', 'p.id', '=', 'dp.id_pesanan')
-            ->where('p.status', 'Completed')
-            ->whereDate('p.completed_at', $tanggal)
-            ->selectRaw('COALESCE(SUM(dp.jumlah), 0) as total_porsi')
-            ->selectRaw("COALESCE(SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM reservasi r WHERE r.id_pesanan = p.id) THEN dp.jumlah ELSE 0 END), 0) as porsi_selforder")
-            ->selectRaw("COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM reservasi r WHERE r.id_pesanan = p.id) THEN dp.jumlah ELSE 0 END), 0) as porsi_reservasi")
-            ->first();
-
-        $rowsQuery = DB::table('detail_pesanan as dp')
-            ->join('pesanan as p', 'p.id', '=', 'dp.id_pesanan')
-            ->join('menu as m', 'm.id', '=', 'dp.id_menu')
-            ->leftJoin('users as u', 'u.id', '=', 'p.id_user')
-            ->where('p.status', 'Completed')
-            ->whereDate('p.completed_at', $tanggal)
-            ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($where) use ($search) {
-                    $where->where('p.kode_pesanan', 'like', "%{$search}%")
-                        ->orWhere('m.nama', 'like', "%{$search}%")
-                        ->orWhere('u.username', 'like', "%{$search}%");
-                });
-            })
-            ->select([
-                'p.created_at',
-                'p.kode_pesanan',
-                'm.nama as nama_menu',
-                'dp.jumlah',
-                'dp.subtotal as total_harga',
-                'u.username as pengelola',
-            ])
-            ->orderByDesc('p.created_at')
-            ->orderByDesc('dp.id');
-
-        $rekapan = $rowsQuery->paginate(25)->withQueryString();
-
-        return view('admin.rekapan', compact('tanggal', 'search', 'summary', 'rekapan'));
-    }
-
-    public function cetak(Request $request)
-    {
-        // Tanggal laporan (berdasarkan yang difilter di dashboard)
-        $tanggal = $request->query('tanggal', now()->format('Y-m-d'));
-
-        // ====================================================================
-        // 1. RINCIAN MENU TERJUAL (Berdasarkan pesanan yang sudah Selesai/Completed)
-        // ====================================================================
-        $menuTerjual = DB::table('detail_pesanan')
-            ->join('pesanan', 'detail_pesanan.id_pesanan', '=', 'pesanan.id')
-            ->join('menu', 'detail_pesanan.id_menu', '=', 'menu.id')
-            ->whereDate('pesanan.completed_at', $tanggal)
-            ->where('pesanan.status', 'Completed') // Hanya yang sudah selesai
-            ->select(
-                'menu.nama',
-                DB::raw('SUM(detail_pesanan.jumlah) as total_porsi'),
-                DB::raw('SUM(detail_pesanan.subtotal) as total_subtotal')
-            )
-            ->groupBy('menu.id', 'menu.nama')
-            ->get();
-
-        $totalPenjualanMenu = $menuTerjual->sum('total_subtotal');
-
-        // ====================================================================
-        // 2. RINCIAN PENDAPATAN (Berdasarkan pesanan yang sudah Selesai/Completed)
-        // ====================================================================
-        $pendapatan = DB::table('pembayaran')
-            ->join('pesanan', 'pembayaran.id_pesanan', '=', 'pesanan.id')
-            ->whereDate('pesanan.completed_at', $tanggal)
-            ->where('pesanan.status', 'Completed')
-            ->where('pembayaran.status', 'Success') // Hanya pembayaran sukses
-            ->select(
-                'pembayaran.jenis',
-                'pembayaran.metode',
-                'pembayaran.midtrans_order_id',
-                DB::raw('SUM(pembayaran.nominal) as total_nominal')
-            )
-            ->groupBy('pembayaran.jenis', 'pembayaran.metode', 'pembayaran.midtrans_order_id')
-            ->get();
-
-        $totalPendapatan = $pendapatan->sum('total_nominal');
-        $midtransPendapatan = $pendapatan
-            ->filter(fn ($payment) => !empty($payment->midtrans_order_id))
-            ->groupBy(fn ($payment) => strtolower(trim((string) $payment->metode)))
-            ->map(fn ($payments) => $payments->sum('total_nominal'));
-        $totalMidtrans = $midtransPendapatan->sum();
-        $pelunasanNonTunai = $pendapatan
-            ->filter(fn ($payment) =>
-                strtolower(trim((string) $payment->jenis)) === 'pelunasan'
-                && strtolower(trim((string) $payment->metode)) !== 'tunai'
-                && empty($payment->midtrans_order_id)
-            )
-            ->groupBy(fn ($payment) => strtolower(trim((string) $payment->metode)))
-            ->map(fn ($payments) => $payments->sum('total_nominal'));
-        $totalTunai = $pendapatan
-            ->filter(fn ($payment) => strtolower(trim((string) $payment->metode)) === 'tunai')
-            ->sum('total_nominal');
-
-        return view('admin.daily_report', compact(
-            'tanggal',
-            'menuTerjual',
-            'totalPenjualanMenu',
-            'pendapatan',
-            'totalPendapatan',
-            'totalTunai',
-            'midtransPendapatan',
-            'totalMidtrans',
-            'pelunasanNonTunai'
-        ));
-    }
 }

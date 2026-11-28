@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -24,6 +23,6 @@ class User extends Authenticatable
 
     public function pesanan()
     {
-        return $this->hasMany(Reservasi::class, 'id_user', 'id');
+        return $this->hasMany(Pesanan::class, 'id_user', 'id');
     }
 }

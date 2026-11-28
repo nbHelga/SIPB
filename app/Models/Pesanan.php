@@ -13,22 +13,14 @@ class Pesanan extends Model
         'kode_pesanan',
         'id_user',
         'id_meja', 
-        // 'id_reservasi', 
         'total_harga',
-        // 'pb', 
-        // 'total_bayar',
         'status',
         'completed_at'
         ];
-        // 'metode_pembayaran',
-        // 'metode_pelunasan',
-        // 'snap_token'];
 
     protected $casts = [
         'completed_at' => 'datetime',
         'total_harga' => 'decimal:2',
-        // 'pb' => 'decimal:2',
-        // 'total_bayar' => 'decimal:2',
     ];
 
     public function setStatusAttribute($value): void
@@ -99,15 +91,4 @@ class Pesanan extends Model
             ->where('status', 'Success')
             ->latestOfMany('id');
     }
-
-    // public function getDaftarMejaAttribute()
-    // {
-    //     // Jika pesanan reservasi, ambil seluruh meja dari relasi detail_reservasi
-    //     if ($this->id_reservasi && $this->reservasi) {
-    //         return $this->reservasi->detailReservasi->pluck('meja.nomor_meja')->implode(', ');
-    //     }
-
-    //     // Jika self order, ambil langsung dari relasi id_meja
-    //     return $this->meja ? $this->id_meja : '-';
-    // }
 }
